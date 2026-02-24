@@ -1,0 +1,9 @@
+{
+  "id": 1,
+  "subject": "统计 backend/app/ 下 .py 文件数量",
+  "description": "使用 bash 命令统计 backend/app/ 目录下有多少个 .py 文件",
+  "status": "completed",
+  "blockedBy": [],
+  "blocks": [],
+  "owner": ""
+}

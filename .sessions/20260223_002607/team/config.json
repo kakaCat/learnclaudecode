@@ -1,0 +1,30 @@
+{
+  "team_name": "default",
+  "members": [
+    {
+      "name": "data_collector",
+      "role": "\u6570\u636e\u6536\u96c6\u5458",
+      "status": "idle"
+    },
+    {
+      "name": "financial_analyst",
+      "role": "\u8d22\u52a1\u5206\u6790\u5e08",
+      "status": "idle"
+    },
+    {
+      "name": "industry_analyst",
+      "role": "\u884c\u4e1a\u5206\u6790\u5e08",
+      "status": "idle"
+    },
+    {
+      "name": "technical_analyst",
+      "role": "\u6280\u672f\u5206\u6790\u5e08",
+      "status": "idle"
+    },
+    {
+      "name": "investment_strategist",
+      "role": "\u6295\u8d44\u7b56\u7565\u5e08",
+      "status": "idle"
+    }
+  ]
+}

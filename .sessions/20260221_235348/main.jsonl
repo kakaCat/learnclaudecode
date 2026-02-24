@@ -1,0 +1,2 @@
+{"content": "帮我创建3个任务：安装依赖、写代码、写测试，然后列出所有任务", "additional_kwargs": {}, "response_metadata": {}, "type": "human", "name": null, "id": null}
+{"content": "", "additional_kwargs": {}, "response_metadata": {}, "type": "ai", "name": null, "id": null, "tool_calls": [], "invalid_tool_calls": [], "usage_metadata": null}
