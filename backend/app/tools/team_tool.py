@@ -3,16 +3,20 @@ team_tools.py - LangChain @tool wrappers for the team module.
 """
 
 import json
+import logging
 import uuid
 
 from langchain_core.tools import tool
 
 from backend.app.team import get_bus, get_team
 
+logger = logging.getLogger(__name__)
+
 
 @tool
 def spawn_teammate(name: str, role: str, prompt: str) -> str:
     """Spawn a persistent teammate agent in its own thread. The teammate can use tools and communicate via inboxes."""
+    logger.info("spawn_teammate: name=%s role=%s", name, role)
     return get_team().spawn(name, role, prompt)
 
 
@@ -25,6 +29,7 @@ def list_teammates() -> str:
 @tool
 def send_message(to: str, content: str, msg_type: str = "message") -> str:
     """Send a message to a teammate's inbox. msg_type: message, broadcast, shutdown_request, shutdown_response, plan_approval_response."""
+    logger.info("send_message: to=%s type=%s", to, msg_type)
     return get_bus().send("lead", to, content, msg_type)
 
 
@@ -37,6 +42,7 @@ def read_inbox() -> str:
 @tool
 def broadcast(content: str) -> str:
     """Send a message to all teammates."""
+    logger.info("broadcast: %s", content[:80])
     return get_bus().broadcast("lead", content, get_team().member_names())
 
 

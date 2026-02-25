@@ -1,9 +1,17 @@
 import json
 import re
 import time
+from enum import Enum
 from pathlib import Path
 
 from backend.app.session import get_session_dir
+from backend.app import tracer
+
+
+class TaskStatus(str, Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
 
 
 def _slug(text: str) -> str:
@@ -42,9 +50,10 @@ class TaskManager:
     def create(self, subject: str, description: str = "") -> str:
         next_id = self._max_id() + 1
         task = {"id": next_id, "subject": subject, "description": description,
-                "status": "pending", "blockedBy": [], "blocks": [], "owner": "",
+                "status": TaskStatus.PENDING, "blockedBy": [], "blocks": [], "owner": "",
                 "worktree": "", "created_at": time.time(), "updated_at": time.time()}
         self._save(task)
+        tracer.emit("task.create", task_id=next_id, subject=subject)
         return json.dumps(task, indent=2)
 
     def get(self, task_id: int) -> str:
@@ -53,11 +62,12 @@ class TaskManager:
     def update(self, task_id: int, status: str = None,
                add_blocked_by: list = None, add_blocks: list = None) -> str:
         task = self._load(task_id)
+        old_status = task["status"]
         if status:
-            if status not in ("pending", "in_progress", "completed"):
+            if status not in TaskStatus._value2member_map_:
                 raise ValueError(f"Invalid status: {status}")
             task["status"] = status
-            if status == "completed":
+            if status == TaskStatus.COMPLETED:
                 for f in self.dir.glob("task_*.json"):
                     t = json.loads(f.read_text())
                     if task_id in t.get("blockedBy", []):
@@ -76,6 +86,9 @@ class TaskManager:
                 except ValueError:
                     pass
         self._save(task)
+        if status and status != old_status:
+            tracer.emit("task.status", task_id=task_id, subject=task["subject"],
+                        from_status=old_status, to_status=status)
         return json.dumps(task, indent=2)
 
     def bind_worktree(self, task_id: int, worktree: str, owner: str = "") -> str:
@@ -83,10 +96,12 @@ class TaskManager:
         task["worktree"] = worktree
         if owner:
             task["owner"] = owner
-        if task["status"] == "pending":
-            task["status"] = "in_progress"
+        if task["status"] == TaskStatus.PENDING:
+            task["status"] = TaskStatus.IN_PROGRESS
         task["updated_at"] = time.time()
         self._save(task)
+        tracer.emit("task.bind_worktree", task_id=task_id, subject=task["subject"],
+                    worktree=worktree, owner=owner or task.get("owner", ""))
         return json.dumps(task, indent=2)
 
     def unbind_worktree(self, task_id: int) -> str:
@@ -102,7 +117,7 @@ class TaskManager:
             return "No tasks."
         lines = []
         for t in tasks:
-            marker = {"pending": "[ ]", "in_progress": "[>]", "completed": "[x]"}.get(t["status"], "[?]")
+            marker = {TaskStatus.PENDING: "[ ]", TaskStatus.IN_PROGRESS: "[>]", TaskStatus.COMPLETED: "[x]"}.get(t["status"], "[?]")
             blocked = f" (blocked by: {t['blockedBy']})" if t.get("blockedBy") else ""
             wt = f" wt={t['worktree']}" if t.get("worktree") else ""
             lines.append(f"{marker} #{t['id']}: {t['subject']}{blocked}{wt}")

@@ -2,6 +2,8 @@ import json
 import time
 from pathlib import Path
 
+from backend.app import tracer
+
 
 class EventBus:
     def __init__(self, event_log_path: Path):
@@ -22,6 +24,8 @@ class EventBus:
             payload["error"] = error
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(payload) + "\n")
+        tracer.emit("worktree." + event, task=task or {}, worktree=worktree or {},
+                    **({"error": error} if error else {}))
 
     def list_recent(self, limit: int = 20) -> str:
         n = max(1, min(int(limit or 20), 200))

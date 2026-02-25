@@ -1,13 +1,19 @@
+import logging
+
 from langchain_core.tools import tool
 
 from backend.app.task import get_tasks
+
+logger = logging.getLogger(__name__)
 
 
 @tool
 def task_create(subject: str, description: str = "") -> str:
     """创建持久化任务，在上下文压缩后仍然保留。以 JSON 格式存储在 .tasks/ 目录中。"""
     try:
-        return get_tasks().create(subject, description)
+        result = get_tasks().create(subject, description)
+        logger.info("task_create: %s", subject)
+        return result
     except Exception as e:
         return f"Error: {e}"
 
@@ -26,7 +32,9 @@ def task_update(task_id: int, status: str = None,
                 addBlockedBy: list = None, addBlocks: list = None) -> str:
     """更新持久化任务的状态（pending|in_progress|completed）或依赖关系。"""
     try:
-        return get_tasks().update(task_id, status, addBlockedBy, addBlocks)
+        result = get_tasks().update(task_id, status, addBlockedBy, addBlocks)
+        logger.info("task_update: id=%s status=%s", task_id, status)
+        return result
     except Exception as e:
         return f"Error: {e}"
 

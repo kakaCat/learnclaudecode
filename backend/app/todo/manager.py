@@ -9,13 +9,11 @@ class TodoManager:
         for i, item in enumerate(items):
             content = str(item.get("content", "")).strip()
             status = str(item.get("status", "pending")).lower()
-            active_form = str(item.get("activeForm", "")).strip()
+            active_form = str(item.get("activeForm", "") or item.get("active_form", "")).strip() or content
             if not content:
                 raise ValueError(f"Item {i}: content required")
             if status not in ("pending", "in_progress", "completed"):
                 raise ValueError(f"Item {i}: invalid status '{status}'")
-            if not active_form:
-                raise ValueError(f"Item {i}: activeForm required")
             if status == "in_progress":
                 in_progress_count += 1
             validated.append({"content": content, "status": status, "activeForm": active_form})

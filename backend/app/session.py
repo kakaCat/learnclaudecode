@@ -58,3 +58,38 @@ def save_session(agent_name: str, history: list) -> None:
     with open(path, "w") as f:
         for msg in history:
             f.write(json.dumps(msg.model_dump(), ensure_ascii=False) + "\n")
+
+
+def list_sessions() -> list[str]:
+    """Return session keys sorted newest-first."""
+    if not SESSIONS_DIR.exists():
+        return []
+    return sorted((d.name for d in SESSIONS_DIR.iterdir() if d.is_dir()), reverse=True)
+
+
+def load_session(agent_name: str, key: str) -> list:
+    """Load history from .sessions/{key}/{agent_name}.jsonl as LangChain messages."""
+    from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+    _type_map = {"human": HumanMessage, "ai": AIMessage, "tool": ToolMessage}
+    _keep = {
+        "human": {"content", "additional_kwargs"},
+        "ai": {"content", "additional_kwargs", "tool_calls", "invalid_tool_calls"},
+        "tool": {"content", "tool_call_id"},
+    }
+    path = SESSIONS_DIR / key / f"{agent_name}.jsonl"
+    if not path.exists():
+        return []
+    history = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line)
+            msg_type = data.get("type")
+            cls = _type_map.get(msg_type)
+            if cls:
+                fields = {k: v for k, v in data.items() if k in _keep.get(msg_type, set())}
+                history.append(cls(**fields))
+        except Exception:
+            continue
+    return history

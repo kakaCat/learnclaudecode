@@ -1,18 +1,21 @@
 import json
 import logging
+import time
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain.agents import create_agent
 from backend.app.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from backend.app.prompts import SYSTEM_PROMPT
-from backend.app.tools import TOOLS
+from backend.app.prompts import get_system_prompt
+from backend.app.tools_manager import tools_manager
+import backend.app.tools  # noqa: F401 — triggers tool registration
 from backend.app.compact import was_compact_requested
 from backend.app.background import drain_notifications
 from backend.app.team import get_bus
 from backend.app.team import state as _team_state
 from backend.app.compaction import estimate_tokens, micro_compact, auto_compact
 from backend.app.session import new_session_key, set_session_key, save_session
+from backend.app import tracer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -27,7 +30,7 @@ TOOL_ICONS = {
     "Task": "🤖", "load_skill": "📚", "compact": "🗜️",
     "task_create": "📌", "task_get": "🔖", "task_update": "🔄", "task_list": "📝",
     "task_bind_worktree": "🔗",
-    "background_run": "⚡", "check_background": "📡",
+    "background_run": "⚡", "background_agent": "🤖⚡", "check_background": "📡",
     "worktree_create": "🌿", "worktree_list": "🌳", "worktree_status": "📊",
     "worktree_run": "▶️", "worktree_remove": "🗑️", "worktree_keep": "📎",
     "worktree_events": "📜",
@@ -38,20 +41,40 @@ def _log(icon: str, msg: str):
     print(f"{G}{icon} {msg}{R}")
 
 
-def _build_agent():
+def _fmt_args(name: str, args: dict) -> str:
+    if name == "Task":
+        return f"subagent={args.get('subagent_type')} | {args.get('description', '')[:60]}"
+    if name == "TodoWrite":
+        todos = args.get("todos", [])
+        summary = ", ".join(f"{t.get('status','?')}:{t.get('content','')[:20]}" for t in todos[:4])
+        return f"{len(todos)} todos [{summary}{'...' if len(todos)>4 else ''}]"
+    if name == "spawn_teammate":
+        return f"name={args.get('name')} role={args.get('role')}"
+    if name in ("worktree_create", "worktree_run", "worktree_remove", "worktree_keep", "worktree_status"):
+        return f"name={args.get('name')} task_id={args.get('task_id','-')}"
+    if name == "background_run":
+        return str(args.get("command", ""))[:80]
+    if name == "background_agent":
+        return f"subagent={args.get('subagent_type')} | {args.get('description', '')[:60]}"
+    if name in ("task_create", "task_update"):
+        return f"subject={args.get('subject','')} status={args.get('status','')}"
+    return str(args)[:80]
+
+
+def _build_agent(session_key: str = ""):
     llm = ChatOpenAI(
         model=DEEPSEEK_MODEL,
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
     )
-    return create_agent(llm, TOOLS, system_prompt=SYSTEM_PROMPT), llm
+    return create_agent(llm, tools_manager.get_tools(), system_prompt=get_system_prompt(session_key)), llm
 
 
 class AgentService:
     def __init__(self):
-        self.agent, self.llm = _build_agent()
         self.session_key = new_session_key()
         set_session_key(self.session_key)
+        self.agent, self.llm = _build_agent(self.session_key)
         self.rounds_without_todo = 0
         _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL} | session={self.session_key}")
 
@@ -64,6 +87,7 @@ class AgentService:
         # Layer 2: auto_compact
         if estimate_tokens(history, self.llm) > THRESHOLD:
             _log("🗜️", "[auto_compact triggered]")
+            tracer.emit("compaction", kind="auto", note=f"tokens>{THRESHOLD}")
             new_history = auto_compact(history, self.llm)
             history.clear()
             history.extend(new_history)
@@ -86,14 +110,21 @@ class AgentService:
             _log("📡", f"注入 {len(notifs)} 条后台任务通知")
 
         _log("👤", f"用户输入: {prompt}")
+        run_start = time.time()
+        rid = tracer.new_run_id()
+        tracer.set_run_id(rid)
+        tracer.emit("run.start", prompt=prompt, session=self.session_key)
 
         messages = history + [HumanMessage(content=prompt)]
         if self.rounds_without_todo >= 3:
             messages.append(HumanMessage(content="<reminder>请更新你的 TodoWrite 待办事项。</reminder>"))
         output = ""
         turn = 0
+        total_tools = 0
         last_state_messages = messages
         tool_results_summary = []
+        # track pending tool calls so we can match results with call_ids
+        _pending_calls: dict[str, dict] = {}  # call_id -> {tool, t_start}
 
         for step in self.agent.stream({"messages": messages}, stream_mode="updates"):
             for node, state in step.items():
@@ -103,15 +134,38 @@ class AgentService:
                     last_state_messages = state["messages"]
                     _log("🧠", f"[第 {turn} 次调用 LLM] 上下文消息数={len(state['messages'])}")
                     if getattr(last, "tool_calls", None):
-                        for tc in last.tool_calls:
+                        tcs = last.tool_calls
+                        mode = "并行" if len(tcs) > 1 else "串行"
+                        _log("🔀", f"  AI 决策: {mode}调用 {len(tcs)} 个工具")
+                        decisions = []
+                        for tc in tcs:
                             icon = TOOL_ICONS.get(tc["name"], "🔧")
-                            _log("🔀", f"  AI 决策: 调用工具 {icon}[{tc['name']}] 参数={tc['args']}")
+                            _log("🔀", f"    {icon}[{tc['name']}] {_fmt_args(tc['name'], tc['args'])}")
+                            decisions.append({"tool": tc["name"], "args": _fmt_args(tc["name"], tc["args"])})
+                            call_id = tc.get("id") or tc["name"]
+                            _pending_calls[call_id] = {"tool": tc["name"], "t_start": time.time()}
+                            tracer.emit("tool.call", turn=turn, tool=tc["name"],
+                                        args=tc["args"], call_id=call_id)
+                        tracer.emit("llm.turn", turn=turn, msg_count=len(state["messages"]),
+                                    decisions=decisions)
                     else:
                         output = last.content or output
                         _log("🧠", f"  AI 决策: 直接回答，无需工具")
+                        tracer.emit("llm.turn", turn=turn, msg_count=len(state["messages"]),
+                                    direct_answer=True, output_preview=output[:200])
                 elif node == "tools":
-                    _log("📥", f"  工具返回: {last.content[:80]}")
+                    icon = TOOL_ICONS.get(last.name, "🔧")
+                    _log("📥", f"  {icon}[{last.name}] 返回: {last.content[:80]}")
                     tool_results_summary.append(last.content[:500])
+                    total_tools += 1
+                    # match call_id
+                    call_id = getattr(last, "tool_call_id", last.name)
+                    pending = _pending_calls.pop(call_id, _pending_calls.pop(last.name, None))
+                    duration_ms = round((time.time() - pending["t_start"]) * 1000) if pending else None
+                    tracer.emit("tool.result", turn=turn, tool=last.name, call_id=call_id,
+                                duration_ms=duration_ms,
+                                ok=not last.content.startswith("Error:"),
+                                output=last.content[:500])
                     if last.name == "TodoWrite":
                         self.rounds_without_todo = 0
                     else:
@@ -135,8 +189,11 @@ class AgentService:
             fallback_messages = last_state_messages + [
                 HumanMessage(content=f"工具调用结果如下：\n{tool_context}\n\n请根据以上结果，用中文简洁地回答用户的问题，直接引用工具返回的原始数据，不要编造任何ID或数值。")
             ]
+            t_fallback = time.time()
             resp = self.llm.invoke(fallback_messages)
             output = resp.content
+            tracer.emit("llm.fallback", duration_ms=round((time.time() - t_fallback) * 1000),
+                        output_preview=output[:200])
 
         history.append(HumanMessage(content=prompt))
         history.append(AIMessage(content=output))
@@ -144,10 +201,14 @@ class AgentService:
         # Layer 3: manual compact triggered by compact tool
         if was_compact_requested():
             _log("🗜️", "[manual compact]")
+            tracer.emit("compaction", kind="manual")
             new_history = auto_compact(history, self.llm)
             history.clear()
             history.extend(new_history)
 
+        duration_ms = round((time.time() - run_start) * 1000)
+        tracer.emit("run.end", output=output[:300], turns=turn,
+                    total_tools=total_tools, duration_ms=duration_ms)
         _log("✅", f"AI 最终回答 → {output[:120]}")
         save_session("main", history)
         return output

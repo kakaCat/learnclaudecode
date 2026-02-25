@@ -1,0 +1,63 @@
+{
+  "market_data": {
+    "symbol": "000858.SZ",
+    "name": "五粮液",
+    "company_name": "宜宾五粮液股份有限公司",
+    "current_price": 149.7,
+    "currency": "CNY",
+    "change": 1.2,
+    "change_percent": 0.81,
+    "open_price": 147.8,
+    "last_close": 148.5,
+    "high_price": 149.8,
+    "low_price": 147.2,
+    "volume": 12567890,
+    "amount": 1865000000,
+    "market_cap": 576.8,
+    "pe_ratio": 28.5,
+    "pb_ratio": 6.8,
+    "dividend_yield": 1.85,
+    "turnover_rate": 0.32,
+    "timestamp": "2026-02-25T21:54:22.029995",
+    "source": "mock"
+  },
+  "technical_indicators": {
+    "ma_5": 147.2,
+    "ma_10": 146.8,
+    "ma_20": 145.5,
+    "ma_60": 142.3,
+    "rsi_14": 58.5,
+    "macd": 0.85,
+    "macd_signal": 0.45,
+    "bollinger_upper": 152.3,
+    "bollinger_middle": 147.8,
+    "bollinger_lower": 143.3,
+    "support_levels": [
+      147.0,
+      145.5,
+      143.0
+    ],
+    "resistance_levels": [
+      150.0,
+      152.5,
+      155.0
+    ]
+  },
+  "market_sentiment": {
+    "institutional_net_buy": 125600000,
+    "main_net_inflow": 85600000,
+    "retail_net_inflow": -45600000,
+    "northbound_net_buy": 23450000,
+    "short_interest": 1.2,
+    "margin_balance": 3.8
+  },
+  "fundamental_data": {
+    "revenue_growth": 15.8,
+    "profit_growth": 18.2,
+    "roe": 22.5,
+    "gross_margin": 75.8,
+    "net_margin": 35.2,
+    "debt_ratio": 28.5,
+    "current_ratio": 2.8
+  }
+}
