@@ -76,6 +76,8 @@ class AgentService:
         set_session_key(self.session_key)
         self.agent, self.llm = _build_agent(self.session_key)
         self.rounds_without_todo = 0
+        self.file_writes_since_reflect = 0  # 文件写入后未反思的次数
+        self.reflect_retry_count = 0        # 当前反思重试次数
         _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL} | session={self.session_key}")
 
     def run(self, prompt: str, history: list = None) -> str:
@@ -118,6 +120,11 @@ class AgentService:
         messages = history + [HumanMessage(content=prompt)]
         if self.rounds_without_todo >= 3:
             messages.append(HumanMessage(content="<reminder>请更新你的 TodoWrite 待办事项。</reminder>"))
+        if self.file_writes_since_reflect >= 1:
+            retry_hint = f"（已重试 {self.reflect_retry_count} 次，若仍 NEEDS_REVISION 请升级为 Reflexion）" if self.reflect_retry_count >= 1 else ""
+            messages.append(HumanMessage(
+                content=f"<reflection-gate>你刚写入了文件，必须先调用 Task(subagent_type='Reflect') 校验后才能继续。{retry_hint}</reflection-gate>"
+            ))
         output = ""
         turn = 0
         total_tools = 0
@@ -170,6 +177,28 @@ class AgentService:
                         self.rounds_without_todo = 0
                     else:
                         self.rounds_without_todo += 1
+                    # 文件写入计数器
+                    if last.name in ("write_file", "edit_file"):
+                        self.file_writes_since_reflect += 1
+                    # Reflect/Reflexion 调用后重置计数器
+                    if last.name == "Task":
+                        task_args = _pending_calls.get(call_id, {})
+                        subagent = ""
+                        # 从 tool call args 里取 subagent_type
+                        for tc in (last_state_messages[-1].tool_calls if getattr(last_state_messages[-1], "tool_calls", None) else []):
+                            if tc.get("id") == call_id or tc.get("name") == "Task":
+                                subagent = tc.get("args", {}).get("subagent_type", "")
+                                break
+                        if subagent in ("Reflect", "Reflexion"):
+                            if "NEEDS_REVISION" in last.content:
+                                self.reflect_retry_count += 1
+                            else:
+                                self.file_writes_since_reflect = 0
+                                self.reflect_retry_count = 0
+                        # 超过 2 次重试强制升级提示（重置计数避免死循环）
+                        if self.reflect_retry_count >= 2:
+                            self.reflect_retry_count = 0
+                            self.file_writes_since_reflect = 0
                     # drain after each tool batch (mirrors v7: drain before each LLM call)
                     notifs = drain_notifications()
                     if notifs:

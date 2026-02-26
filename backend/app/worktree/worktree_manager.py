@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from backend.app.worktree.event_bus import EventBus
+from backend.app.task.task_manager import TaskStatus
 
 
 class WorktreeManager:
@@ -148,7 +149,7 @@ class WorktreeManager:
                 self.tasks.update(task_id, status="completed")
                 self.tasks.unbind_worktree(task_id)
                 self.events.emit("task.completed",
-                                 task={"id": task_id, "subject": before.get("subject", ""), "status": "completed"},
+                                 task={"id": task_id, "subject": before.get("subject", ""), "status": TaskStatus.COMPLETED},
                                  worktree={"name": name})
             idx = self._load_index()
             for item in idx.get("worktrees", []):

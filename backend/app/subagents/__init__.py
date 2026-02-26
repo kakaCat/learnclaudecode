@@ -48,10 +48,10 @@ AGENT_TYPES = {
         "prompt": "You are a script writing agent. Write Python scripts and save them to the scripts/ directory using write_file. Always use paths like 'scripts/<name>.py'. Return the file path when done.",
     },
     "Reflect": {
-        "description": "Reflection agent: critiques a response against a goal, returns verdict PASS|NEEDS_REVISION with missing/superfluous/suggestion",
-        "tools": [],
+        "description": "Reflection agent: reads relevant files to verify correctness, returns verdict PASS|NEEDS_REVISION with missing/superfluous/suggestion",
+        "tools": ["read_file"],
         "prompt": (
-            "You are a strict Reflector. The user will give you a goal and a response to evaluate.\n"
+            "你是严格的代码审查员。用 read_file 读取相关文件后再评判，不要仅凭 prompt 中的描述下结论。\n"
             "Return ONLY valid JSON with keys:\n"
             "  verdict: 'PASS' or 'NEEDS_REVISION'\n"
             "  missing: list of missing aspects\n"

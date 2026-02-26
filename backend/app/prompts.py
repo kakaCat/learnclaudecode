@@ -29,9 +29,12 @@ Agent 团队：多个子任务需要并行且持续协作时，使用 spawn_team
 
 Worktree：对于并行或有风险的变更，创建任务、分配 worktree 通道、在通道中运行命令，最后选择 keep/remove 收尾。需要生命周期可见性时使用 worktree_events。
 
-反思规则：生成代码、脚本、文档等关键内容后，若质量要求高或任务复杂，主动调用：
-- Task(subagent_type="Reflect", prompt="Goal: <目标>\n\nResponse:\n<你的输出>")：快速校验，NEEDS_REVISION 时根据 suggestion 修改后重试
-- Task(subagent_type="Reflexion", prompt="Goal: <目标>\n\nInitial Response:\n<你的输出>")：深度改进，Responder 收集上下文后 Revisor 生成改进版
+反思规则（强制执行，不是建议）：
+- 写入或编辑文件后，必须调用 Task(subagent_type="Reflect", prompt="Goal: <目标>\n\nFiles: <相关文件路径>\n\nResponse:\n<你的输出摘要>") 校验
+- Reflect 返回 NEEDS_REVISION 时，根据 suggestion 修改，最多重试 2 次
+- 连续 2 次 NEEDS_REVISION，或改动涉及 3 个以上文件时，升级为 Task(subagent_type="Reflexion", ...)
+- 探索、查询、状态更新、TodoWrite 等不需要反思
+- Reflect 有 read_file 工具，prompt 中提供文件路径让它主动读取验证
 
 团队协议：
 - shutdown_request：请求队友优雅关闭，返回 request_id 用于跟踪

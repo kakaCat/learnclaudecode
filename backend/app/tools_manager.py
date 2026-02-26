@@ -1,4 +1,7 @@
 from __future__ import annotations
+import importlib
+import pkgutil
+from pathlib import Path
 
 
 class ToolsManager:
@@ -16,6 +19,20 @@ class ToolsManager:
     def register(self, *tools) -> "ToolsManager":
         for t in tools:
             self._tools[t.name] = t
+        return self
+
+    def auto_discover(self, tools_dir: Path, skip: set = None) -> "ToolsManager":
+        from langchain_core.tools import BaseTool
+        skip = (skip or set()) | {"spawn_tool", "__init__"}
+        package = "backend.app.tools"
+        for info in pkgutil.iter_modules([str(tools_dir)]):
+            if info.name in skip:
+                continue
+            module = importlib.import_module(f"{package}.{info.name}")
+            for attr in dir(module):
+                obj = getattr(module, attr)
+                if isinstance(obj, BaseTool):
+                    self._tools[obj.name] = obj
         return self
 
     def build_task_tool(self) -> "ToolsManager":

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from backend.app.team.message_bus import MessageBus
 from backend.app.team.teammate_manager import TeammateManager
+from backend.app.task.task_manager import TaskStatus
 
 _bus: "MessageBus | None" = None
 _team: "TeammateManager | None" = None
@@ -30,7 +31,7 @@ def scan_unclaimed_tasks() -> list:
     unclaimed = []
     for f in sorted(board.glob("task_*.json")):
         task = json.loads(f.read_text())
-        if task.get("status") == "pending" and not task.get("owner") and not task.get("blockedBy"):
+        if task.get("status") == TaskStatus.PENDING and not task.get("owner") and not task.get("blockedBy"):
             unclaimed.append(task)
     return unclaimed
 
@@ -45,7 +46,7 @@ def claim_task(task_id: int, owner: str) -> str:
         if task.get("owner"):
             return f"Error: Task {task_id} already claimed by {task['owner']}"
         task["owner"] = owner
-        task["status"] = "in_progress"
+        task["status"] = TaskStatus.IN_PROGRESS
         path.write_text(json.dumps(task, indent=2))
     return f"Claimed task #{task_id} for {owner}"
 
