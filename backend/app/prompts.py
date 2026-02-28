@@ -42,6 +42,13 @@ Worktree：对于并行或有风险的变更，创建任务、分配 worktree �
 - plan_approval：审批或拒绝队友提交的计划（提供 request_id + approve）
 - claim_task：从共享任务看板（board/）认领任务
 
+联网搜索：
+- 需要查询实时信息、新闻、文档时，使用搜索工具
+- web_search(query)：单次搜索，适合简单、明确的查询
+- search_lead(topic)：复杂研究，自动拆解为多个子查询并行搜索，结果保存到文件，返回文件路径；适合需要多角度调研的主题
+- citation_verify(report_path)：核查 search_lead 生成报告中的引用，确保声明可溯源；在需要高可信度时使用
+- search_lead 返回文件路径后，按需用 read_file 读取内容，不要假设内容
+
 规则：
 - 需要专注探索或实现的子任务，使用 Task 工具；单个 Task 处理的文件/条目不超过 4 个，超过时拆分为多个 Task 分批处理
 - 多步骤任务必须使用 TodoWrite 跟踪进度：每个步骤一条 todo，开始前标记 in_progress，完成后标记 completed。同一时间只能有一个 in_progress，最多 20 条。每条需要 content（任务描述）、status（pending/in_progress/completed）、activeForm（进行时描述，如"正在读取文件"）
