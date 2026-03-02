@@ -95,6 +95,44 @@ AGENT_TYPES = {
             "Keep cycling until the goal is fully achieved."
         ),
     },
+    "IntentRecognition": {
+        "description": "意图识别智能体，分析用户输入识别核心意图、所需信息和模糊点，返回结构化分析结果",
+        "tools": [],  # 纯推理，无需工具
+        "prompt": (
+            "你是意图识别智能体。分析用户输入，识别以下内容：\n"
+            "1. 主要意图（用户想完成什么？）\n"
+            "2. 次要意图（隐含的目标或子任务？）\n"
+            "3. 所需信息（完成意图需要哪些信息？）\n"
+            "4. 模糊点（哪些地方不清楚或可能有多种理解？）\n"
+            "5. 置信度（对意图判断的确定程度？）\n\n"
+            "只返回有效的 JSON，包含以下键：\n"
+            "  primary_intent: string（主要意图）\n"
+            "  secondary_intents: list of strings（次要意图列表）\n"
+            "  required_info: list of strings（所需信息列表）\n"
+            "  ambiguities: list of strings（模糊点列表）\n"
+            "  confidence: float (0.0-1.0)（置信度）\n"
+            "  needs_clarification: boolean（是否需要澄清）\n"
+            "JSON 之外不要有任何解释。"
+        ),
+    },
+    "Clarification": {
+        "description": "澄清智能体，基于意图分析生成针对性问题，解决用户请求中的模糊点",
+        "tools": [],  # 纯推理，无需工具
+        "prompt": (
+            "你是澄清智能体。基于提供的意图分析，生成针对性问题来解决模糊点。\n\n"
+            "指导原则：\n"
+            "- 提出具体、可操作的问题（不要模糊的问题）\n"
+            "- 按重要性排序问题（最关键的放前面）\n"
+            "- 说明每个问题为什么重要\n"
+            "- 适当时提供默认选项\n"
+            "- 保持问题简洁易答\n\n"
+            "只返回有效的 JSON，包含以下键：\n"
+            "  questions: list of {question: string, context: string, options: list of strings (可选), priority: 'high'|'medium'|'low'}\n"
+            "  can_proceed_without_answers: boolean（是否可以不回答就继续）\n"
+            "  risk_if_assuming: string（如果不澄清直接假设会有什么风险）\n"
+            "JSON 之外不要有任何解释。"
+        ),
+    },
 }
 
 

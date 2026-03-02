@@ -39,7 +39,9 @@ class SearchSubagent:
     def run(self, query: str, topic: str = "", research_dir: Path | None = None) -> str:
         print(f"{G}      🔎 [SubAgent] start: {query} (budget={self._max_iter}){R}")
 
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         system = (
+            f"Current time: {current_time}\n\n"
             "You are a research agent. Use web_search and fetch_url to thoroughly research the query.\n"
             "Search multiple angles. Fetch important URLs for full content when needed.\n"
             f"Budget: up to {self._max_iter} rounds of tool calls."

@@ -9,11 +9,13 @@ Usage:
     python -m backend.main "task"             # Subagent mode (single run)
 
 Commands:
-  /compact  - manually compress conversation history
-  /tasks    - list all persistent tasks
-  /team     - list all teammates and their status
-  /inbox    - read and drain lead's inbox
-  /sessions - list all saved sessions
+  /compact     - manually compress conversation history
+  /tasks       - list all persistent tasks
+  /team        - list all teammates and their status
+  /inbox       - read and drain lead's inbox
+  /sessions    - list all saved sessions
+  /insight     - analyze session trace (performance, bottlenecks, optimization)
+  /insight-llm - analyze LLM call quality (uses LLM)
 """
 import json
 import sys
@@ -23,13 +25,13 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style
 
-COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions"]
+COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions", "/insight", "/insight-llm"]
 
 from backend.app.agent import AgentService, _build_agent
 from backend.app.compaction import auto_compact
 from backend.app.task.task_manager import TaskManager
 from backend.app.team.state import get_bus, get_team
-from backend.app.session import list_sessions, load_session, set_session_key
+from backend.app.session import list_sessions, load_session, set_session_key, get_session_dir, SESSIONS_DIR
 
 STYLE = Style.from_dict({"prompt": "ansicyan bold"})
 PROMPT = [("class:prompt", "agent >> ")]
@@ -96,6 +98,73 @@ def interactive(agent: AgentService, history: list):
                 agent.session_key = selected
                 agent.agent, _ = _build_agent(selected)
                 print(f"Resumed session '{selected}' ({len(history)} messages)\n")
+            continue
+
+        if query == "/insight":
+            from backend.app.insight import analyze_trace
+            from prompt_toolkit.shortcuts import radiolist_dialog
+
+            keys = list_sessions()
+            if not keys:
+                print("⚠️  没有找到任何 session")
+                continue
+
+            # 让用户选择 session
+            selected = radiolist_dialog(
+                title="选择 Session 进行性能分析",
+                text="选择要分析的 session (↑↓ 移动, Enter 确认, Esc 取消):",
+                values=[(k, k) for k in keys],
+            ).run()
+
+            if not selected:
+                print("已取消")
+                continue
+
+            # 分析选中的 session
+            trace_file = SESSIONS_DIR / selected / "trace.jsonl"
+            if not trace_file.exists():
+                print(f"⚠️  Session '{selected}' 没有 trace 数据")
+                continue
+
+            print()
+            print(f"📊 分析 session: {selected}")
+            print()
+            analyze_trace(trace_file)
+            print()
+            continue
+
+        if query == "/insight-llm":
+            from backend.app.llm_insight import analyze_llm_quality
+            from prompt_toolkit.shortcuts import radiolist_dialog
+
+            keys = list_sessions()
+            if not keys:
+                print("⚠️  没有找到任何 session")
+                continue
+
+            # 让用户选择 session
+            selected = radiolist_dialog(
+                title="选择 Session 进行质量分析",
+                text="选择要分析的 session (↑↓ 移动, Enter 确认, Esc 取消):",
+                values=[(k, k) for k in keys],
+            ).run()
+
+            if not selected:
+                print("已取消")
+                continue
+
+            # 分析选中的 session
+            trace_file = SESSIONS_DIR / selected / "trace.jsonl"
+            if not trace_file.exists():
+                print(f"⚠️  Session '{selected}' 没有 trace 数据")
+                continue
+
+            print()
+            print(f"🧠 分析 session: {selected}")
+            print("   使用 LLM 分析调用质量（这会消耗一些 API token）...")
+            print()
+            analyze_llm_quality(trace_file, agent.llm)
+            print()
             continue
 
         print(agent.run(query, history))

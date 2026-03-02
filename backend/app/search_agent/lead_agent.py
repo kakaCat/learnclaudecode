@@ -12,13 +12,12 @@ from backend.app.llm import get_llm
 from backend.app.search_agent.search_subagent import SearchSubagent
 from backend.app.search_agent.citation_agent import CitationAgent
 from backend.app.search.duckduckgo import DuckDuckGoSearch
+from backend.app.session import get_workspace_dir
 
 logger = logging.getLogger(__name__)
 
 G = "\033[90m"
 R = "\033[0m"
-
-DEFAULT_RESEARCH_DIR = Path("scripts/research")
 
 # 查询类型 → subagent 数量上限
 _SUBAGENT_COUNT = {"direct": 1, "broad": 3, "deep": 5}
@@ -53,7 +52,8 @@ class SearchLeadAgent:
 
     def run(self, topic: str, research_dir: Path | None = None) -> str:
         print(f"{G}🔍 [SearchLeadAgent] topic: {topic}{R}")
-        _research_dir = research_dir or DEFAULT_RESEARCH_DIR
+        # 默认使用 session workspace，符合项目规范
+        _research_dir = research_dir or (get_workspace_dir() / "research")
         self._research_dir = _research_dir   # 供 _dispatch 传给 SubAgent
 
         # ── 探索模式：委派前先 probe，理解信息版图 ────────────────────────────
@@ -126,8 +126,10 @@ class SearchLeadAgent:
         - broad:  独立子问题，需要分头抓取数据再汇总
         - deep:   多视角深挖单一话题，需要平行探索不同观点
         """
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         resp = self._llm.invoke([
             SystemMessage(content=(
+                f"Current time: {current_time}\n\n"
                 "Classify the research topic into one of three types.\n"
                 'Output ONLY valid JSON: {"type": "direct" | "broad" | "deep", "reason": "one sentence"}\n'
                 "- direct: focused, well-defined, single investigation suffices\n"
@@ -165,8 +167,10 @@ class SearchLeadAgent:
             # 压缩：只传摘要而非全文，避免上下文膨胀
             context = "\nCurrent coverage summary:\n" + _summarize(results)
 
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         resp = self._llm.invoke([
             SystemMessage(content=(
+                f"Current time: {current_time}\n\n"
                 "You are a research planner.\n"
                 f"Strategy: {strategy}\n"
                 "Never repeat already-searched queries.\n"
@@ -188,8 +192,10 @@ class SearchLeadAgent:
             return [topic] if not searched else []
 
     def _evaluate_coverage(self, topic: str, results: dict[str, str]) -> dict:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         resp = self._llm.invoke([
             SystemMessage(content=(
+                f"Current time: {current_time}\n\n"
                 "You are a research evaluator.\n"
                 "Output ONLY valid JSON:\n"
                 '{"situation": "brief summary", "gaps": ["gap1", ...], "confidence": 0.0-1.0}\n'
@@ -223,8 +229,10 @@ class SearchLeadAgent:
 
     def _synthesize(self, topic: str, results: dict[str, str], memory: dict, research_dir: Path) -> str:
         aggregated = _aggregate(results)
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         resp = self._llm.invoke([
             SystemMessage(content=(
+                f"Current time: {current_time}\n\n"
                 "You are a research synthesizer.\n"
                 "Write a concise markdown research report.\n"
                 "Include: key findings, common themes, notable sources (URLs).\n"
