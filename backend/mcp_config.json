@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "akshare-one-mcp": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/Users/mac/Documents/ai/akshare-one-mcp/akshare-one-mcp/src/akshare_one_mcp",
+        "run",
+        "akshare-one-mcp"
+      ],
+      "transport": "stdio"
+    }
+  }
+}

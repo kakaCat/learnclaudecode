@@ -17,6 +17,7 @@ Commands:
   /insight     - analyze session trace (performance, bottlenecks, optimization)
   /insight-llm - analyze LLM call quality (uses LLM)
 """
+import asyncio
 import json
 import sys
 
@@ -37,7 +38,7 @@ STYLE = Style.from_dict({"prompt": "ansicyan bold"})
 PROMPT = [("class:prompt", "agent >> ")]
 
 
-def interactive(agent: AgentService, history: list):
+async def interactive(agent: AgentService, history: list):
     session = PromptSession(
         history=InMemoryHistory(),
         mouse_support=True,
@@ -49,7 +50,7 @@ def interactive(agent: AgentService, history: list):
 
     while True:
         try:
-            query = session.prompt(PROMPT).strip()
+            query = (await session.prompt_async(PROMPT)).strip()
         except (EOFError, KeyboardInterrupt):
             print("\nBye.")
             break
@@ -167,7 +168,8 @@ def interactive(agent: AgentService, history: list):
             print()
             continue
 
-        print(agent.run(query, history))
+        result = await agent.run(query, history)
+        print(result)
         print()
 
 
@@ -198,6 +200,9 @@ if __name__ == "__main__":
 
     if args:
         # Subagent mode: single run
-        print(agent.run(args[0], history))
+        import asyncio
+        result = asyncio.run(agent.run(args[0], history))
+        print(result)
     else:
-        interactive(agent, history)
+        import asyncio
+        asyncio.run(interactive(agent, history))

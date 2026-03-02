@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import asyncio
 
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
@@ -74,13 +75,17 @@ class AgentService:
     def __init__(self):
         self.session_key = new_session_key()
         set_session_key(self.session_key)
+
+        # 异步加载 MCP 工具
+        asyncio.run(tools_manager.load_mcp_tools())
+
         self.agent, self.llm = _build_agent(self.session_key)
         self.rounds_without_todo = 0
         self.file_writes_since_reflect = 0  # 文件写入后未反思的次数
         self.reflect_retry_count = 0        # 当前反思重试次数
         _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL} | session={self.session_key}")
 
-    def run(self, prompt: str, history: list = None) -> str:
+    async def run(self, prompt: str, history: list = None) -> str:
         if history is None:
             history = []
 
@@ -133,13 +138,34 @@ class AgentService:
         # track pending tool calls so we can match results with call_ids
         _pending_calls: dict[str, dict] = {}  # call_id -> {tool, t_start}
 
-        for step in self.agent.stream({"messages": messages}, stream_mode="updates"):
+        async for step in self.agent.astream({"messages": messages}, stream_mode="updates"):
             for node, state in step.items():
                 last = state["messages"][-1]
                 if node == "agent":
                     turn += 1
                     last_state_messages = state["messages"]
                     _log("🧠", f"[第 {turn} 次调用 LLM] 上下文消息数={len(state['messages'])}")
+
+                    # 记录发送给 LLM 的完整 prompt
+                    prompt_messages = []
+                    for msg in state["messages"]:
+                        msg_dict = {"role": msg.__class__.__name__}
+                        if hasattr(msg, "content"):
+                            msg_dict["content"] = msg.content[:500] if isinstance(msg.content, str) else str(msg.content)[:500]
+                        if hasattr(msg, "name"):
+                            msg_dict["name"] = msg.name
+                        prompt_messages.append(msg_dict)
+                    tracer.emit("llm.prompt", turn=turn, messages=prompt_messages)
+
+                    # 记录 LLM 的完整响应
+                    response_data = {"content": last.content[:500] if last.content else ""}
+                    if getattr(last, "tool_calls", None):
+                        response_data["tool_calls"] = [
+                            {"name": tc["name"], "args": tc["args"], "id": tc.get("id", "")}
+                            for tc in last.tool_calls
+                        ]
+                    tracer.emit("llm.response", turn=turn, **response_data)
+
                     if getattr(last, "tool_calls", None):
                         tcs = last.tool_calls
                         mode = "并行" if len(tcs) > 1 else "串行"
@@ -161,18 +187,22 @@ class AgentService:
                         tracer.emit("llm.turn", turn=turn, msg_count=len(state["messages"]),
                                     direct_answer=True, output_preview=output[:200])
                 elif node == "tools":
+                    # 处理 content 可能是列表的情况
+                    content_str = last.content if isinstance(last.content, str) else str(last.content)
+
                     icon = TOOL_ICONS.get(last.name, "🔧")
-                    _log("📥", f"  {icon}[{last.name}] 返回: {last.content[:80]}")
-                    tool_results_summary.append(last.content[:500])
+                    _log("📥", f"  {icon}[{last.name}] 返回: {content_str[:80]}")
+                    tool_results_summary.append(content_str[:500])
                     total_tools += 1
                     # match call_id
                     call_id = getattr(last, "tool_call_id", last.name)
                     pending = _pending_calls.pop(call_id, _pending_calls.pop(last.name, None))
                     duration_ms = round((time.time() - pending["t_start"]) * 1000) if pending else None
+
                     tracer.emit("tool.result", turn=turn, tool=last.name, call_id=call_id,
                                 duration_ms=duration_ms,
-                                ok=not last.content.startswith("Error:"),
-                                output=last.content[:500])
+                                ok=not content_str.startswith("Error:"),
+                                output=content_str[:500])
                     if last.name == "TodoWrite":
                         self.rounds_without_todo = 0
                     else:
@@ -190,7 +220,7 @@ class AgentService:
                                 subagent = tc.get("args", {}).get("subagent_type", "")
                                 break
                         if subagent in ("Reflect", "Reflexion"):
-                            if "NEEDS_REVISION" in last.content:
+                            if "NEEDS_REVISION" in content_str:
                                 self.reflect_retry_count += 1
                             else:
                                 self.file_writes_since_reflect = 0

@@ -11,6 +11,8 @@ Event schema (all events):
 Event types & extra fields:
   run.start          prompt, session
   run.end            output, turns, total_tools, duration_ms
+  llm.prompt         turn, messages:[{role,content}]  — full input sent to LLM
+  llm.response       turn, content, tool_calls:[{name,args,id}]  — full LLM response
   llm.turn           turn, msg_count, decisions:[{tool,args}] | direct_answer:true
   tool.call          turn, tool, args, call_id
   tool.result        turn, tool, call_id, duration_ms, ok, output

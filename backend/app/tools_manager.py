@@ -15,6 +15,7 @@ class ToolsManager:
     def __init__(self):
         self._tools: dict = {}
         self._task_tool = None
+        self._mcp_loaded = False
 
     def register(self, *tools) -> "ToolsManager":
         for t in tools:
@@ -23,7 +24,7 @@ class ToolsManager:
 
     def auto_discover(self, tools_dir: Path, skip: set = None) -> "ToolsManager":
         from langchain_core.tools import BaseTool
-        skip = (skip or set()) | {"spawn_tool", "__init__"}
+        skip = (skip or set()) | {"spawn_tool", "__init__", "mcp_tool"}
         package = "backend.app.tools"
         for info in pkgutil.iter_modules([str(tools_dir)]):
             if info.name in skip:
@@ -40,6 +41,23 @@ class ToolsManager:
         from backend.app.tools.spawn_tool import make_task_tool
         self._task_tool = make_task_tool()
         self._tools[self._task_tool.name] = self._task_tool
+        return self
+
+    async def load_mcp_tools(self) -> "ToolsManager":
+        """异步加载 MCP 工具"""
+        if self._mcp_loaded:
+            return self
+
+        try:
+            from backend.app.tools.mcp_tool import get_mcp_tools
+            mcp_tools = await get_mcp_tools()
+            for tool in mcp_tools:
+                self._tools[tool.name] = tool
+            self._mcp_loaded = True
+        except Exception as e:
+            import logging
+            logging.error(f"Failed to load MCP tools: {e}")
+
         return self
 
     def get_tools(self) -> list:
