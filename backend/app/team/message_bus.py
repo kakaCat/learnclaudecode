@@ -11,15 +11,18 @@ class MessageBus:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def send(self, sender: str, to: str, content: str, msg_type: str = "message") -> str:
+        from backend.app.session import get_inbox_path
         if msg_type not in VALID_MSG_TYPES:
             return f"Error: Invalid type '{msg_type}'. Valid: {VALID_MSG_TYPES}"
         msg = {"type": msg_type, "from": sender, "content": content, "timestamp": time.time()}
-        with open(self.dir / f"{to}.jsonl", "a") as f:
+        inbox_path = get_inbox_path(to)
+        with open(inbox_path, "a") as f:
             f.write(json.dumps(msg) + "\n")
         return f"Sent {msg_type} to {to}"
 
     def read_inbox(self, name: str) -> list:
-        inbox_path = self.dir / f"{name}.jsonl"
+        from backend.app.session import get_inbox_path
+        inbox_path = get_inbox_path(name)
         if not inbox_path.exists():
             return []
         messages = [json.loads(l) for l in inbox_path.read_text().strip().splitlines() if l]

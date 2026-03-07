@@ -50,21 +50,37 @@ def _wrap_mcp_tool(tool: BaseTool) -> BaseTool:
 
     @wraps(original_run)
     def wrapped_run(*args, **kwargs):
-        result = original_run(*args, **kwargs)
-        # 如果是元组 (content, artifact)，只转换 content
-        if isinstance(result, tuple) and len(result) == 2:
-            content, artifact = result
-            return (_normalize_mcp_result(content), artifact)
-        return _normalize_mcp_result(result)
+        try:
+            result = original_run(*args, **kwargs)
+            # 如果是元组 (content, artifact)，只转换 content
+            if isinstance(result, tuple) and len(result) == 2:
+                content, artifact = result
+                return (_normalize_mcp_result(content), artifact)
+            return _normalize_mcp_result(result)
+        except Exception as e:
+            error_msg = f"Error: MCP tool '{tool.name}' failed: {str(e)}"
+            logger.warning(error_msg)
+            # 检查工具是否需要返回元组格式
+            if hasattr(tool, 'response_format') and tool.response_format == 'content_and_artifact':
+                return (error_msg, {"error": str(e)})
+            return error_msg
 
     @wraps(original_arun)
     async def wrapped_arun(*args, **kwargs):
-        result = await original_arun(*args, **kwargs)
-        # 如果是元组 (content, artifact)，只转换 content
-        if isinstance(result, tuple) and len(result) == 2:
-            content, artifact = result
-            return (_normalize_mcp_result(content), artifact)
-        return _normalize_mcp_result(result)
+        try:
+            result = await original_arun(*args, **kwargs)
+            # 如果是元组 (content, artifact)，只转换 content
+            if isinstance(result, tuple) and len(result) == 2:
+                content, artifact = result
+                return (_normalize_mcp_result(content), artifact)
+            return _normalize_mcp_result(result)
+        except Exception as e:
+            error_msg = f"Error: MCP tool '{tool.name}' failed: {str(e)}"
+            logger.warning(error_msg)
+            # 检查工具是否需要返回元组格式
+            if hasattr(tool, 'response_format') and tool.response_format == 'content_and_artifact':
+                return (error_msg, {"error": str(e)})
+            return error_msg
 
     # 替换方法
     tool._run = wrapped_run

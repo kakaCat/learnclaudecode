@@ -20,10 +20,8 @@ IDLE_TIMEOUT = 60
 
 
 def get_board_dir() -> Path:
-    from backend.app.session import get_session_dir
-    d = get_session_dir() / "board"
-    d.mkdir(exist_ok=True)
-    return d
+    from backend.app.session import get_board_dir as _get_board_dir
+    return _get_board_dir()
 
 
 def scan_unclaimed_tasks() -> list:
@@ -37,9 +35,10 @@ def scan_unclaimed_tasks() -> list:
 
 
 def claim_task(task_id: int, owner: str) -> str:
+    from backend.app.session import get_board_task_path
     board = get_board_dir()
     with claim_lock:
-        path = board / f"task_{task_id}.json"
+        path = get_board_task_path(task_id)
         if not path.exists():
             return f"Error: Task {task_id} not found"
         task = json.loads(path.read_text())
@@ -52,10 +51,8 @@ def claim_task(task_id: int, owner: str) -> str:
 
 
 def _get_team_dir() -> Path:
-    from backend.app.session import get_session_dir
-    d = get_session_dir() / "team"
-    d.mkdir(exist_ok=True)
-    return d
+    from backend.app.session import get_team_dir
+    return get_team_dir()
 
 
 def get_bus() -> MessageBus:

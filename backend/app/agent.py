@@ -3,19 +3,17 @@ import logging
 import time
 import asyncio
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain.agents import create_agent
-from backend.app.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from backend.app.prompts import get_system_prompt
+from backend.app.agent_factory import build_agent
+from backend.app.config import DEEPSEEK_MODEL
 from backend.app.tools_manager import tools_manager
 import backend.app.tools  # noqa: F401 — triggers tool registration
 from backend.app.compact import was_compact_requested
 from backend.app.background import drain_notifications
 from backend.app.team import get_bus
 from backend.app.team import state as _team_state
-from backend.app.compaction import estimate_tokens, micro_compact, auto_compact
-from backend.app.session import new_session_key, set_session_key, save_session
+from backend.app.context.compaction import estimate_tokens, micro_compact, auto_compact
+from backend.app.session import new_session_key, set_session_key, get_store
 from backend.app import tracer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -62,42 +60,47 @@ def _fmt_args(name: str, args: dict) -> str:
     return str(args)[:80]
 
 
-def _build_agent(session_key: str = ""):
-    llm = ChatOpenAI(
-        model=DEEPSEEK_MODEL,
-        api_key=DEEPSEEK_API_KEY,
-        base_url=DEEPSEEK_BASE_URL,
-    )
-    return create_agent(llm, tools_manager.get_tools(), system_prompt=get_system_prompt(session_key)), llm
 
 
 class AgentService:
     def __init__(self):
-        self.session_key = new_session_key()
-        set_session_key(self.session_key)
+        self.session_key = None  # 延迟创建，第一次对话时才创建
 
         # 异步加载 MCP 工具
         asyncio.run(tools_manager.load_mcp_tools())
 
-        self.agent, self.llm = _build_agent(self.session_key)
+        self.agent, self.llm = build_agent("")
         self.rounds_without_todo = 0
         self.file_writes_since_reflect = 0  # 文件写入后未反思的次数
         self.reflect_retry_count = 0        # 当前反思重试次数
-        _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL} | session={self.session_key}")
+        _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL}")
 
     async def run(self, prompt: str, history: list = None) -> str:
         if history is None:
             history = []
 
+        # 第一次对话时创建 session
+        if self.session_key is None:
+            self.session_key = new_session_key()
+            set_session_key(self.session_key)
+            self.agent, self.llm = build_agent(self.session_key)
+            _log("🆕", f"创建新 session: {self.session_key}")
+
         # Layer 1: micro_compact
+        before_micro = len(history)
         micro_compact(history)
+        if len(history) < before_micro:
+            get_store().save_compaction("main", "micro", before_micro, len(history))
+
         # Layer 2: auto_compact
         if estimate_tokens(history, self.llm) > THRESHOLD:
             _log("🗜️", "[auto_compact triggered]")
             tracer.emit("compaction", kind="auto", note=f"tokens>{THRESHOLD}")
+            before_auto = len(history)
             new_history = auto_compact(history, self.llm)
             history.clear()
             history.extend(new_history)
+            get_store().save_compaction("main", "auto", before_auto, len(history))
 
         # 注入 lead inbox 消息（仅当 team 已初始化时，避免提前创建 team 目录）
         inbox = get_bus().read_inbox("lead") if _team_state._bus is not None else []
@@ -140,8 +143,16 @@ class AgentService:
 
         async for step in self.agent.astream({"messages": messages}, stream_mode="updates"):
             for node, state in step.items():
+                # DEBUG: 记录所有节点名称，帮助诊断为什么 llm.prompt 没有被记录
+                _log("🔍", f"DEBUG: node={node}, has_messages={len(state.get('messages', []))}")
+
+                # 记录所有节点到 trace，帮助调试
+                tracer.emit("debug.node", node=node, msg_count=len(state.get('messages', [])))
+
                 last = state["messages"][-1]
-                if node == "agent":
+
+                # 尝试匹配多种可能的 LLM 节点名称
+                if node in ("agent", "call_model", "llm", "__start__", "model"):
                     turn += 1
                     last_state_messages = state["messages"]
                     _log("🧠", f"[第 {turn} 次调用 LLM] 上下文消息数={len(state['messages'])}")
@@ -203,6 +214,9 @@ class AgentService:
                                 duration_ms=duration_ms,
                                 ok=not content_str.startswith("Error:"),
                                 output=content_str[:500])
+
+                    # Save tool result to transcript
+                    get_store().save_tool_result("main", last.name, call_id, content_str)
                     if last.name == "TodoWrite":
                         self.rounds_without_todo = 0
                     else:
@@ -257,17 +271,26 @@ class AgentService:
         history.append(HumanMessage(content=prompt))
         history.append(AIMessage(content=output))
 
+        # Save turn to transcript
+        tool_calls_data = []
+        for msg in last_state_messages:
+            if hasattr(msg, "tool_calls") and msg.tool_calls:
+                tool_calls_data = [{"name": tc["name"], "args": tc["args"]} for tc in msg.tool_calls]
+                break
+        get_store().save_turn("main", prompt, output, tool_calls_data)
+
         # Layer 3: manual compact triggered by compact tool
         if was_compact_requested():
             _log("🗜️", "[manual compact]")
             tracer.emit("compaction", kind="manual")
+            before_manual = len(history)
             new_history = auto_compact(history, self.llm)
             history.clear()
             history.extend(new_history)
+            get_store().save_compaction("main", "manual", before_manual, len(history))
 
         duration_ms = round((time.time() - run_start) * 1000)
         tracer.emit("run.end", output=output[:300], turns=turn,
                     total_tools=total_tools, duration_ms=duration_ms)
         _log("✅", f"AI 最终回答 → {output[:120]}")
-        save_session("main", history)
         return output

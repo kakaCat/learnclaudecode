@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 
 class TeammateManager:
     def __init__(self, team_dir: Path):
+        from backend.app.session import get_team_config_path
         self.dir = team_dir
         self.dir.mkdir(exist_ok=True)
-        self.config_path = self.dir / "config.json"
+        self.config_path = get_team_config_path()
         self.config = json.loads(self.config_path.read_text()) if self.config_path.exists() else {"team_name": "default", "members": []}
         self.threads = {}
 

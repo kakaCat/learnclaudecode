@@ -4,7 +4,7 @@ import time
 from enum import Enum
 from pathlib import Path
 
-from backend.app.session import get_session_dir
+from backend.app.session import get_tasks_dir, get_task_file_path
 from backend.app import tracer
 
 
@@ -21,9 +21,7 @@ def _slug(text: str) -> str:
 class TaskManager:
     @property
     def dir(self) -> Path:
-        d = get_session_dir() / "tasks"
-        d.mkdir(parents=True, exist_ok=True)
-        return d
+        return get_tasks_dir()
 
     def _max_id(self) -> int:
         ids = [int(f.stem.split("_")[1]) for f in self.dir.glob("task_*.json")]
@@ -42,7 +40,8 @@ class TaskManager:
         slug = _slug(task["subject"])
         for old in self.dir.glob(f"task_{task['id']}_*.json"):
             old.unlink()
-        (self.dir / f"task_{task['id']}_{slug}.json").write_text(json.dumps(task, indent=2, ensure_ascii=False))
+        task_path = get_task_file_path(task['id'], slug)
+        task_path.write_text(json.dumps(task, indent=2, ensure_ascii=False))
 
     def exists(self, task_id: int) -> bool:
         return bool(list(self.dir.glob(f"task_{task_id}_*.json")))

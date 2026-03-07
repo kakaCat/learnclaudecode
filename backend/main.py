@@ -28,8 +28,9 @@ from prompt_toolkit.styles import Style
 
 COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions", "/insight", "/insight-llm"]
 
-from backend.app.agent import AgentService, _build_agent
-from backend.app.compaction import auto_compact
+from backend.app.agent import AgentService
+from backend.app.agent_factory import build_agent
+from backend.app.context.compaction import auto_compact
 from backend.app.task.task_manager import TaskManager
 from backend.app.team.state import get_bus, get_team
 from backend.app.session import list_sessions, load_session, set_session_key, get_session_dir, SESSIONS_DIR
@@ -97,7 +98,7 @@ async def interactive(agent: AgentService, history: list):
                 history.clear()
                 history.extend(load_session("main", selected))
                 agent.session_key = selected
-                agent.agent, _ = _build_agent(selected)
+                agent.agent, agent.llm = build_agent(selected)
                 print(f"Resumed session '{selected}' ({len(history)} messages)\n")
             continue
 
@@ -195,7 +196,7 @@ if __name__ == "__main__":
         set_session_key(resume_key)
         history = load_session("main", resume_key)
         agent.session_key = resume_key
-        agent.agent, _ = _build_agent(resume_key)
+        agent.agent, agent.llm = build_agent(resume_key)
         print(f"Resumed session '{resume_key}' ({len(history)} messages)\n")
 
     if args:
