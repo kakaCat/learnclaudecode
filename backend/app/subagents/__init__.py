@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from backend.app.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from backend.app.session import get_session_key, save_session
-from backend.app import tracer
+from backend.app.context import tracer
 
 logger = logging.getLogger(__name__)
 

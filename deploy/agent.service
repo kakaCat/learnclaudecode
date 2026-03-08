@@ -1,0 +1,23 @@
+[Unit]
+Description=AI Agent Service
+After=network.target
+
+[Service]
+Type=simple
+User=mac
+WorkingDirectory=/Users/mac/Documents/ai/learnclaudecode/learnclaudecode
+ExecStart=/usr/bin/python3 backend/app/agent.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# 环境变量
+Environment="PYTHONUNBUFFERED=1"
+
+# 资源限制
+MemoryLimit=2G
+CPUQuota=80%
+
+[Install]
+WantedBy=multi-user.target

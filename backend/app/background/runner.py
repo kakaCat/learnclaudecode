@@ -4,7 +4,7 @@ import time
 import uuid
 
 from backend.app.tools.base import WORKDIR
-from backend.app import tracer
+from backend.app.context import tracer
 
 _tasks: dict = {}
 _notification_queue: list = []

@@ -1,9 +1,22 @@
+# 核心依赖
 langchain==1.2.10
 langchain-openai>=0.1.0
 langgraph==1.0.9
 python-dotenv>=1.0.0
+
+# 可选依赖（用于增强功能）
+anthropic>=0.25.0  # 可选：支持 Claude 模型
 prompt_toolkit>=3.0.0
 duckduckgo-search>=6.0.0
 requests>=2.31.0
+
+# MCP 相关（可选）
 mcp>=0.9.0
 langchain-mcp-adapters>=0.1.0
+
+# CDP 浏览器自动化
+pychrome>=0.2.3
+
+# 健康检查和监控
+flask>=3.0.0
+psutil>=5.9.0

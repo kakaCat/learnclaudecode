@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 .sessions/
 .claude/
+.pytest_cache/
+.worktrees/

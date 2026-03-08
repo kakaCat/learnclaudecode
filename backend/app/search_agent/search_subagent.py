@@ -7,8 +7,8 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from backend.app.llm import get_llm
-from backend.app.tools.search_tool import web_search
-from backend.app.tools.fetch_tool import fetch_url
+from backend.app.tools.implementations.search_tool import web_search
+from backend.app.tools.implementations.fetch_tool import fetch_url
 
 logger = logging.getLogger(__name__)
 

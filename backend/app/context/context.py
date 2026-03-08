@@ -7,7 +7,7 @@ from langchain.agents import create_agent
 from backend.app.context.overflow_guard import OverflowGuard
 from backend.app.memory import ConversationHistory
 from backend.app.llm import get_llm
-from backend.app.tools_manager import tools_manager
+from backend.app.tools.manager import tool_manager
 from backend.app.prompts import get_system_prompt
 from backend.app.context.tracer import Tracer
 
@@ -70,7 +70,7 @@ class AgentContext:
         self._llm = get_llm()
 
         # 3. Initialize tools
-        self._tools = tools_manager.get_tools()
+        self._tools = tool_manager.get_tools()
 
         # 4. Initialize system prompt
         self._system_prompt = get_system_prompt(self._session_key)

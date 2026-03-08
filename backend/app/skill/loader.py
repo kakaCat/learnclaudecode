@@ -1,7 +1,8 @@
 import re
 from pathlib import Path
 
-SKILLS_DIR = Path(__file__).parent.parent / "skills"
+# Skills 目录路径（项目根目录下的 .skills/）
+SKILLS_DIR = Path(__file__).parent.parent.parent.parent / ".skills"
 
 
 class SkillLoader:

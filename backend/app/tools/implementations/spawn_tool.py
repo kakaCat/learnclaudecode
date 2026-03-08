@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 
 
 def make_task_tool():
-    """Task tool factory. Subagent tools are resolved from tools_manager at call time."""
-    from backend.app.tools_manager import tools_manager
+    """Task tool factory. Subagent tools are resolved from tool_manager at call time."""
+    from backend.app.tools.manager import tool_manager
 
     descriptions = get_descriptions()
     desc = (
@@ -23,7 +23,7 @@ def make_task_tool():
         logger.info("Task: [%s] %s", subagent_type, description)
         if subagent_type not in AGENT_TYPES:
             return f"Error: Unknown agent type '{subagent_type}'. Choose from: {list(AGENT_TYPES.keys())}"
-        base_tools = [t for t in tools_manager.get_tools() if t.name != "Task"]
+        base_tools = [t for t in tool_manager.get_tools() if t.name != "Task"]
         return run_subagent(description, prompt, subagent_type, base_tools, recursion_limit)
 
     return Task

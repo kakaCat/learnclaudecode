@@ -6,7 +6,9 @@ from langchain_core.messages import HumanMessage, AIMessage
 from backend.app.context import AgentContext
 from backend.app.config import DEEPSEEK_MODEL
 from backend.app.notifications import NotificationService
-from backend.app.guards import TodoReminderGuard, ReflectionGatekeeper
+from backend.app.guards.todo_reminder import TodoReminderGuard
+from backend.app.guards.reflection_gate import ReflectionGatekeeper
+from backend.app.reliability import get_global_lifecycle, start_lifecycle, get_lifecycle_status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
@@ -53,13 +55,18 @@ def _fmt_args(name: str, args: dict) -> str:
 
 
 class AgentService:
-    def __init__(self):
+    def __init__(self, enable_lifecycle: bool = True):
         # 核心依赖
         self.context = AgentContext.create_default("")
         self.notification_service = NotificationService()
         # 功能守卫
         self.todo_reminder = TodoReminderGuard()
         self.reflection_gate = ReflectionGatekeeper()
+        # 生命周期管理
+        self.enable_lifecycle = enable_lifecycle
+        self.lifecycle_manager = None
+        if enable_lifecycle:
+            self.lifecycle_manager = get_global_lifecycle()
         # UI 状态
         self._first_run = True
 
@@ -220,7 +227,15 @@ class AgentService:
         if not output:
             _log("🧠", "  [补充调用] 获取最终回答")
             tool_context = "\n".join(f"- {r}" for r in tool_results_summary)
-            fallback_messages = last_state_messages + [
+
+            # Filter out AIMessages with tool_calls to avoid API validation error
+            clean_messages = []
+            for msg in last_state_messages:
+                if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                    continue
+                clean_messages.append(msg)
+
+            fallback_messages = clean_messages + [
                 HumanMessage(content=f"工具调用结果如下：\n{tool_context}\n\n请根据以上结果，用中文简洁地回答用户的问题，直接引用工具返回的原始数据，不要编造任何ID或数值。")
             ]
             t_fallback = time.time()

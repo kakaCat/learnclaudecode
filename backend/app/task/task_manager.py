@@ -5,7 +5,7 @@ from enum import Enum
 from pathlib import Path
 
 from backend.app.session import get_tasks_dir, get_task_file_path
-from backend.app import tracer
+from backend.app.context import tracer
 
 
 class TaskStatus(str, Enum):

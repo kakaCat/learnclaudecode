@@ -27,6 +27,8 @@ class ToolsManager:
         from langchain_core.tools import BaseTool
         skip = (skip or set()) | {"spawn_tool", "__init__", "mcp_tool"}
         package = "backend.app.tools"
+
+        # Scan main tools directory
         for info in pkgutil.iter_modules([str(tools_dir)]):
             if info.name in skip:
                 continue
@@ -35,11 +37,24 @@ class ToolsManager:
                 obj = getattr(module, attr)
                 if isinstance(obj, BaseTool):
                     self._tools[obj.name] = obj
+
+        # Scan implementations subdirectory
+        impl_dir = tools_dir / "implementations"
+        if impl_dir.exists():
+            for info in pkgutil.iter_modules([str(impl_dir)]):
+                if info.name in skip:
+                    continue
+                module = importlib.import_module(f"{package}.implementations.{info.name}")
+                for attr in dir(module):
+                    obj = getattr(module, attr)
+                    if isinstance(obj, BaseTool):
+                        self._tools[obj.name] = obj
+
         return self
 
     def build_task_tool(self) -> "ToolsManager":
         """创建 Task 工具并注册。subagent tools 在调用时从 manager 动态获取。"""
-        from backend.app.tools.spawn_tool import make_task_tool
+        from backend.app.tools.implementations.spawn_tool import make_task_tool
         self._task_tool = make_task_tool()
         self._tools[self._task_tool.name] = self._task_tool
         return self
@@ -50,7 +65,7 @@ class ToolsManager:
             return self
 
         try:
-            from backend.app.tools.mcp_tool import get_mcp_tools
+            from backend.app.tools.implementations.mcp_tool import get_mcp_tools
             mcp_tools = await get_mcp_tools()
             for tool in mcp_tools:
                 self._tools[tool.name] = tool
@@ -65,7 +80,7 @@ class ToolsManager:
         """确保工具已初始化（延迟初始化，避免循环导入）"""
         if not self._initialized:
             from pathlib import Path
-            tools_dir = Path(__file__).parent / "tools"
+            tools_dir = Path(__file__).parent
             self.auto_discover(tools_dir).build_task_tool()
             self._initialized = True
 
@@ -83,4 +98,4 @@ class ToolsManager:
         return dict(self._tools)
 
 
-tools_manager = ToolsManager()
+tool_manager = ToolsManager()

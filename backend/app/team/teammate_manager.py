@@ -5,10 +5,10 @@ import uuid
 from pathlib import Path
 
 from backend.app.tools.base import WORKDIR
-from backend.app.tools.file_tool import bash, read_file, write_file, edit_file
-from backend.app.tools.worktree_tool import (worktree_create, worktree_run, worktree_status,
-                                              worktree_keep, worktree_remove, worktree_events)
-from backend.app import tracer
+from backend.app.tools.implementations.file_tool import bash, read_file, write_file, edit_file
+from backend.app.tools.implementations.worktree_tool import (worktree_create, worktree_run, worktree_status,
+                                                              worktree_keep, worktree_remove, worktree_events)
+from backend.app.context import tracer
 
 logger = logging.getLogger(__name__)
 
