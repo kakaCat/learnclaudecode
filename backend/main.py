@@ -29,11 +29,11 @@ from prompt_toolkit.styles import Style
 COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions", "/insight", "/insight-llm"]
 
 from backend.app.agent import AgentService
-from backend.app.agent_factory import build_agent
-from backend.app.context.compaction import auto_compact
+from backend.app.context import AgentContext
+from backend.app.memory.compaction import auto_compact
 from backend.app.task.task_manager import TaskManager
 from backend.app.team.state import get_bus, get_team
-from backend.app.session import list_sessions, load_session, set_session_key, get_session_dir, SESSIONS_DIR
+from backend.app.session import list_sessions, load_session, get_session_dir, SESSIONS_DIR
 
 STYLE = Style.from_dict({"prompt": "ansicyan bold"})
 PROMPT = [("class:prompt", "agent >> ")]
@@ -42,7 +42,7 @@ PROMPT = [("class:prompt", "agent >> ")]
 async def interactive(agent: AgentService, history: list):
     session = PromptSession(
         history=InMemoryHistory(),
-        mouse_support=True,
+        mouse_support=False,
         style=STYLE,
         completer=WordCompleter(COMMANDS, sentence=True),
     )
@@ -94,11 +94,9 @@ async def interactive(agent: AgentService, history: list):
                 values=[(k, k) for k in keys],
             ).run()
             if selected:
-                set_session_key(selected)
                 history.clear()
                 history.extend(load_session("main", selected))
-                agent.session_key = selected
-                agent.agent, agent.llm = build_agent(selected)
+                agent.switch_session(selected)  # 切换session并重置状态
                 print(f"Resumed session '{selected}' ({len(history)} messages)\n")
             continue
 
@@ -175,6 +173,10 @@ async def interactive(agent: AgentService, history: list):
 
 
 if __name__ == "__main__":
+    # 应用启动时加载 MCP 工具（只加载一次）
+    from backend.app.tools_manager import tools_manager
+    asyncio.run(tools_manager.load_mcp_tools())
+
     args = sys.argv[1:]
     resume_key = None
 
@@ -193,10 +195,8 @@ if __name__ == "__main__":
     history = []
 
     if resume_key:
-        set_session_key(resume_key)
         history = load_session("main", resume_key)
-        agent.session_key = resume_key
-        agent.agent, agent.llm = build_agent(resume_key)
+        agent.switch_session(resume_key)  # 切换session并重置状态
         print(f"Resumed session '{resume_key}' ({len(history)} messages)\n")
 
     if args:

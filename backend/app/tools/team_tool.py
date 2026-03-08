@@ -53,8 +53,8 @@ def shutdown_request(teammate: str) -> str:
     req_id = str(uuid.uuid4())[:8]
     with tracker_lock:
         shutdown_requests[req_id] = {"target": teammate, "status": "pending"}
-    get_bus().send("lead", teammate, "Please shut down gracefully.",
-                   "shutdown_request", {"request_id": req_id})
+    content = json.dumps({"message": "Please shut down gracefully.", "request_id": req_id})
+    get_bus().send("lead", teammate, content, "shutdown_request")
     return f"Shutdown request {req_id} sent to '{teammate}' (status: pending)"
 
 
@@ -76,8 +76,8 @@ def plan_approval(request_id: str, approve: bool, feedback: str = "") -> str:
         return f"Error: Unknown plan request_id '{request_id}'"
     with tracker_lock:
         req["status"] = "approved" if approve else "rejected"
-    get_bus().send("lead", req["from"], feedback, "plan_approval_response",
-                   {"request_id": request_id, "approve": approve, "feedback": feedback})
+    content = json.dumps({"request_id": request_id, "approve": approve, "feedback": feedback})
+    get_bus().send("lead", req["from"], content, "plan_approval_response")
     return f"Plan {req['status']} for '{req['from']}'"
 
 

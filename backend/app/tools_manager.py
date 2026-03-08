@@ -16,6 +16,7 @@ class ToolsManager:
         self._tools: dict = {}
         self._task_tool = None
         self._mcp_loaded = False
+        self._initialized = False
 
     def register(self, *tools) -> "ToolsManager":
         for t in tools:
@@ -60,14 +61,25 @@ class ToolsManager:
 
         return self
 
+    def _ensure_initialized(self):
+        """确保工具已初始化（延迟初始化，避免循环导入）"""
+        if not self._initialized:
+            from pathlib import Path
+            tools_dir = Path(__file__).parent / "tools"
+            self.auto_discover(tools_dir).build_task_tool()
+            self._initialized = True
+
     def get_tools(self) -> list:
+        self._ensure_initialized()
         return list(self._tools.values())
 
     def get(self, name: str):
+        self._ensure_initialized()
         return self._tools.get(name)
 
     @property
     def tools_map(self) -> dict:
+        self._ensure_initialized()
         return dict(self._tools)
 
 

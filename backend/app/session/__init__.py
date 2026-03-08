@@ -2,6 +2,7 @@
 Session 包统一入口
 
 提供统一的会话管理接口，合并了原 session.py 和 analysis/session_store.py 的功能。
+新增 Bootstrap 文件加载和记忆管理功能（参考 s06_intelligence.py）。
 
 使用方式:
     from backend.app.session import get_store, save_session, load_session
@@ -11,6 +12,14 @@ Session 包统一入口
     store.create_session()
     store.save_turn("main", user_msg, ai_msg)
 
+    # Bootstrap 文件加载
+    bootstrap_data = store.load_bootstrap(mode="full")
+    soul = store.load_soul()
+
+    # 记忆管理
+    store.write_memory("用户喜欢使用 Python", category="preference")
+    results = store.hybrid_search_memory("Python 偏好")
+
     # 使用向后兼容的函数接口
     key = new_session_key()
     save_session("main", history)
@@ -18,7 +27,9 @@ Session 包统一入口
 from pathlib import Path
 
 from .constants import SESSIONS_DIR, SESSIONS_INDEX
-from .store import SessionStore
+from .session import SessionStore
+from .bootstrap import BootstrapLoader, load_soul
+from .memory_store import MemoryStore
 
 # 全局单例
 _store: SessionStore | None = None
@@ -147,6 +158,8 @@ def list_sessions() -> list[str]:
 __all__ = [
     # 类
     'SessionStore',
+    'BootstrapLoader',
+    'MemoryStore',
 
     # 常量
     'SESSIONS_DIR',
@@ -174,4 +187,7 @@ __all__ = [
     'get_team_config_path',
     'get_inbox_path',
     'get_agent_transcript_path',
+
+    # Bootstrap 和记忆函数
+    'load_soul',
 ]

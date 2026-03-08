@@ -1,281 +1,194 @@
-"""
-context_guard.py - Context overflow protection inspired by s03_sessions.py
-
-Three-stage retry mechanism:
-1. Normal API call
-2. Truncate large tool results (keep first 30%)
-3. Compact history via LLM summary (compress first 50%)
-4. Raise exception if still overflowing
-
-Includes CompactionStrategy pattern for flexible compression strategies.
-"""
-import json
-import time
-from abc import ABC, abstractmethod
-from typing import Any, List, Dict, Optional
+"""Application Context - manages all agent components like Spring ApplicationContext"""
+from typing import Optional, List
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
+from langchain_core.tools import BaseTool
+from langchain.agents import create_agent
+
+from backend.app.context.overflow_guard import OverflowGuard
+from backend.app.memory import ConversationHistory
+from backend.app.llm import get_llm
+from backend.app.tools_manager import tools_manager
+from backend.app.prompts import get_system_prompt
+from backend.app.context.tracer import Tracer
 
 
-# ============================================================================
-# 策略模式 - 压缩策略
-# ============================================================================
+class AgentContext:
+    """
+    Application context that manages all agent components.
 
-class CompactionStrategy(ABC):
-    """压缩策略抽象基类"""
+    Similar to Spring ApplicationContext, this class:
+    - Initializes and manages LLM
+    - Initializes and manages tools
+    - Initializes and manages prompts
+    - Creates and configures OverflowGuard (溢出保护)
+    - Creates and configures ConversationHistory (对话记忆)
+    - Creates and manages Agent
+    - Provides centralized component access
 
-    @abstractmethod
-    def should_compact(self, history: List, context: Dict) -> bool:
-        """判断是否需要压缩"""
-        pass
+    Usage:
+        context = AgentContext.create_default()
+        agent = context.get_agent()
+        llm = context.get_llm()
+        tools = context.get_tools()
+        prompt = context.get_system_prompt()
+        guard = context.get_overflow_guard()
+        history = context.get_conversation_history()
+    """
 
-    @abstractmethod
-    def compact(self, history: List, llm: ChatOpenAI) -> List:
-        """执行压缩"""
-        pass
+    def __init__(self):
+        self._session_key: str = ""
+        self._llm: Optional[ChatOpenAI] = None
+        self._tools: Optional[List[BaseTool]] = None
+        self._system_prompt: Optional[str] = None
+        self._overflow_guard: Optional[OverflowGuard] = None
+        self._conversation_history: Optional[ConversationHistory] = None
+        self._agent = None
+        self._tracer: Optional[Tracer] = None
 
-    @abstractmethod
-    def get_kind(self) -> str:
-        """返回压缩类型"""
-        pass
+    @classmethod
+    def create_default(cls, session_key: str = "") -> "AgentContext":
+        """
+        Factory method: create context with default configuration
 
+        Args:
+            session_key: Session identifier for context isolation
 
-class MicroCompactionStrategy(CompactionStrategy):
-    """微压缩策略 - 移除连续的相同消息"""
+        Returns:
+            Fully initialized AgentContext
+        """
+        context = cls()
+        context._session_key = session_key
+        context._initialize_components()
+        return context
 
-    def should_compact(self, history: List, context: Dict) -> bool:
-        return len(history) > 0
+    def _initialize_components(self):
+        """Initialize all components in correct order"""
+        # 1. Initialize tracer
+        self._tracer = Tracer()
 
-    def compact(self, history: List, llm: ChatOpenAI) -> List:
-        from backend.app.agent.compaction import micro_compact
-        micro_compact(history)
-        return history
+        # 2. Initialize LLM
+        self._llm = get_llm()
 
-    def get_kind(self) -> str:
-        return "micro"
+        # 3. Initialize tools
+        self._tools = tools_manager.get_tools()
 
+        # 4. Initialize system prompt
+        self._system_prompt = get_system_prompt(self._session_key)
 
-class AutoCompactionStrategy(CompactionStrategy):
-    """自动压缩策略 - 超过阈值时压缩"""
+        # 5. Initialize overflow guard
+        self._overflow_guard = OverflowGuard(
+            llm=self._llm,
+            tools=self._tools,
+            max_tokens=180000
+        )
 
-    def __init__(self, threshold: int = 50000):
-        self.threshold = threshold
+        # 6. Initialize conversation history with strategies
+        self._conversation_history = ConversationHistory.create_default(
+            llm=self._llm,
+            tools=self._tools,
+            max_tokens=180000
+        )
 
-    def should_compact(self, history: List, context: Dict) -> bool:
-        guard = context.get("guard")
-        if not guard:
-            return False
-        tokens = guard.estimate_messages_tokens(history)
-        return tokens > self.threshold
+        # 7. Initialize agent
+        self._agent = create_agent(
+            self._llm,
+            self._tools,
+            system_prompt=self._system_prompt
+        )
 
-    def compact(self, history: List, llm: ChatOpenAI) -> List:
-        guard = ContextGuard()
-        return guard.compact_history(history, llm)
+    def get_llm(self) -> ChatOpenAI:
+        """Get LLM instance"""
+        if self._llm is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._llm
 
-    def get_kind(self) -> str:
-        return "auto"
+    def get_tools(self) -> List[BaseTool]:
+        """Get tools list"""
+        if self._tools is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._tools
 
+    def get_system_prompt(self) -> str:
+        """Get system prompt"""
+        if self._system_prompt is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._system_prompt
 
-class ManualCompactionStrategy(CompactionStrategy):
-    """手动压缩策略 - 用户触发"""
+    def get_guard(self) -> OverflowGuard:
+        """Get overflow guard (向后兼容的别名)"""
+        return self.get_overflow_guard()
 
-    def should_compact(self, history: List, context: Dict) -> bool:
-        from backend.app.compact import was_compact_requested
-        return was_compact_requested()
+    def get_overflow_guard(self) -> OverflowGuard:
+        """Get overflow guard (context overflow protection)"""
+        if self._overflow_guard is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._overflow_guard
 
-    def compact(self, history: List, llm: ChatOpenAI) -> List:
-        guard = ContextGuard()
-        return guard.compact_history(history, llm)
+    def get_conversation_history(self) -> ConversationHistory:
+        """Get conversation history (memory management)"""
+        if self._conversation_history is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._conversation_history
 
-    def get_kind(self) -> str:
-        return "manual"
+    def get_agent(self):
+        """Get agent instance"""
+        if self._agent is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._agent
 
+    def get_session_key(self) -> str:
+        """Get session key"""
+        return self._session_key
 
-class ContextGuard:
-    """Protects agent from context window overflow with three-stage retry."""
+    def set_session_key(self, session_key: str):
+        """
+        Update session key and reinitialize components that depend on it
 
-    def __init__(self, max_tokens: int = 180000):
-        self.max_tokens = max_tokens
-        self.strategies: List[CompactionStrategy] = []
+        Args:
+            session_key: New session identifier
+        """
+        from backend.app.session import set_session_key as global_set_session_key
 
-    def add_strategy(self, strategy: CompactionStrategy):
-        """添加压缩策略"""
-        self.strategies.append(strategy)
-        return self
+        self._session_key = session_key
+        # Sync to global session
+        global_set_session_key(session_key)
+        # Reinitialize system prompt with new session key
+        self._system_prompt = get_system_prompt(session_key)
+        # Reinitialize agent with new prompt
+        self._agent = create_agent(
+            self._llm,
+            self._tools,
+            system_prompt=self._system_prompt
+        )
 
-    def apply_strategies(self, history: List, llm: ChatOpenAI) -> List:
-        """应用所有适用的压缩策略"""
+    def set_llm(self, llm: ChatOpenAI):
+        """Set custom LLM instance"""
+        self._llm = llm
+        if self._overflow_guard:
+            self._overflow_guard.llm = llm
+        if self._conversation_history:
+            self._conversation_history.llm = llm
+
+    def set_tools(self, tools: List[BaseTool]):
+        """Set custom tools list"""
+        self._tools = tools
+        if self._overflow_guard:
+            self._overflow_guard.tools = tools
+        if self._conversation_history:
+            self._conversation_history.tools = tools
+
+    def get_tracer(self) -> Tracer:
+        """Get tracer instance"""
+        if self._tracer is None:
+            raise RuntimeError("Context not initialized. Call create_default() first.")
+        return self._tracer
+
+    def new_session_key(self) -> str:
+        """Generate new session key"""
+        from backend.app.session import new_session_key
+        return new_session_key()
+
+    def get_store(self):
+        """Get session store"""
         from backend.app.session import get_store
-
-        context = {"guard": self, "llm": llm}
-
-        for strategy in self.strategies:
-            if strategy.should_compact(history, context):
-                before = len(history)
-                new_history = strategy.compact(history, llm)
-
-                if len(new_history) < before:
-                    get_store().save_compaction("main", strategy.get_kind(), before, len(new_history))
-                    print(f"  [compact] [{strategy.get_kind()}] {before} → {len(new_history)} messages")
-
-                history = new_history
-
-        return history
-
-    @staticmethod
-    def estimate_tokens(text: str) -> int:
-        """Rough token estimation: 1 token ≈ 4 chars."""
-        return len(text) // 4
-
-    def estimate_messages_tokens(self, messages: list) -> int:
-        """Estimate total tokens in message history."""
-        total = 0
-        for msg in messages:
-            if hasattr(msg, "content"):
-                content = msg.content
-                if isinstance(content, str):
-                    total += self.estimate_tokens(content)
-                elif isinstance(content, list):
-                    for item in content:
-                        if isinstance(item, dict):
-                            total += self.estimate_tokens(json.dumps(item))
-                        else:
-                            total += self.estimate_tokens(str(item))
-            # Add tool_calls
-            if hasattr(msg, "tool_calls") and msg.tool_calls:
-                for tc in msg.tool_calls:
-                    total += self.estimate_tokens(json.dumps(tc))
-        return total
-
-    def truncate_tool_result(self, result: str, max_fraction: float = 0.3) -> str:
-        """Truncate tool result at newline boundary, keep first 30%."""
-        max_chars = int(self.max_tokens * 4 * max_fraction)
-        if len(result) <= max_chars:
-            return result
-
-        # Find last newline before max_chars
-        cut = result.rfind("\n", 0, max_chars)
-        if cut <= 0:
-            cut = max_chars
-
-        head = result[:cut]
-        return (
-            head + f"\n\n[... truncated ({len(result)} chars total, "
-            f"showing first {len(head)}) ...]"
-        )
-
-    def compact_history(self, messages: list, llm: ChatOpenAI) -> list:
-        """
-        Compact first 50% of messages via LLM summary.
-        Keep last N messages (N = max(4, 20% of total)) unchanged.
-        """
-        total = len(messages)
-        if total <= 4:
-            return messages
-
-        keep_count = max(4, int(total * 0.2))
-        compress_count = max(2, int(total * 0.5))
-        compress_count = min(compress_count, total - keep_count)
-
-        if compress_count < 2:
-            return messages
-
-        old_messages = messages[:compress_count]
-        recent_messages = messages[compress_count:]
-
-        # Serialize old messages for summary
-        old_text = self._serialize_messages(old_messages)
-
-        summary_prompt = (
-            "Summarize the following conversation concisely, "
-            "preserving key facts and decisions. "
-            "Output only the summary in Chinese, no preamble.\n\n"
-            f"{old_text}"
-        )
-
-        try:
-            summary_resp = llm.invoke([HumanMessage(content=summary_prompt)])
-            summary_text = summary_resp.content
-
-            print(f"  [compact] {len(old_messages)} messages -> summary ({len(summary_text)} chars)")
-
-            compacted = [
-                HumanMessage(content=f"[之前对话摘要]\n{summary_text}"),
-                AIMessage(content="明白，我已了解之前的对话上下文。"),
-            ]
-            compacted.extend(recent_messages)
-            return compacted
-
-        except Exception as exc:
-            print(f"  [compact] Summary failed ({exc}), dropping old messages")
-            return recent_messages
-
-    def _serialize_messages(self, messages: list) -> str:
-        """Flatten messages to plain text for LLM summary."""
-        parts = []
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                parts.append(f"[user]: {msg.content}")
-            elif isinstance(msg, AIMessage):
-                if isinstance(msg.content, str):
-                    parts.append(f"[assistant]: {msg.content}")
-                if hasattr(msg, "tool_calls") and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        parts.append(f"[assistant called {tc['name']}]: {json.dumps(tc['args'], ensure_ascii=False)}")
-            elif isinstance(msg, ToolMessage):
-                preview = msg.content[:500] if isinstance(msg.content, str) else str(msg.content)[:500]
-                parts.append(f"[tool_result]: {preview}")
-        return "\n".join(parts)
-
-    def _truncate_large_tool_results(self, messages: list) -> list:
-        """Traverse messages and truncate large ToolMessage content."""
-        result = []
-        for msg in messages:
-            if isinstance(msg, ToolMessage) and isinstance(msg.content, str):
-                truncated_content = self.truncate_tool_result(msg.content)
-                result.append(ToolMessage(
-                    content=truncated_content,
-                    tool_call_id=msg.tool_call_id
-                ))
-            else:
-                result.append(msg)
-        return result
-
-    def guard_invoke(
-        self,
-        llm: ChatOpenAI,
-        messages: list,
-        max_retries: int = 2,
-    ) -> Any:
-        """
-        Three-stage retry:
-          Attempt 0: Normal call
-          Attempt 1: Truncate large tool results
-          Attempt 2: Compact history via LLM summary
-        """
-        current_messages = messages.copy()
-
-        for attempt in range(max_retries + 1):
-            try:
-                result = llm.invoke(current_messages)
-                # Update original messages if modified
-                if current_messages is not messages:
-                    messages.clear()
-                    messages.extend(current_messages)
-                return result
-
-            except Exception as exc:
-                error_str = str(exc).lower()
-                is_overflow = ("context" in error_str or "token" in error_str or "length" in error_str)
-
-                if not is_overflow or attempt >= max_retries:
-                    raise
-
-                if attempt == 0:
-                    print("  [guard] Context overflow detected, truncating large tool results...")
-                    current_messages = self._truncate_large_tool_results(current_messages)
-                elif attempt == 1:
-                    print("  [guard] Still overflowing, compacting conversation history...")
-                    current_messages = self.compact_history(current_messages, llm)
-
-        raise RuntimeError("guard_invoke: exhausted retries")
+        return get_store()

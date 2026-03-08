@@ -1,0 +1,12 @@
+{
+  "worktrees": [
+    {
+      "name": "test-worktree",
+      "path": "/Users/mac/Documents/ai/learnclaudecode/learnclaudecode/.worktrees/test-worktree",
+      "branch": "wt/test-worktree",
+      "task_id": 2,
+      "status": "active",
+      "created_at": 1772959056.8732212
+    }
+  ]
+}

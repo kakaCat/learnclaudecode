@@ -38,9 +38,9 @@ AGENT_TYPES = {
         "prompt": "You are a coding agent. Implement the requested changes efficiently.",
     },
     "Plan": {
-        "description": "Planning agent for designing implementation strategies",
-        "tools": ["bash", "read_file", "glob", "grep", "list_dir"],
-        "prompt": "You are a planning agent. Analyze the codebase and output a numbered implementation plan. Do NOT make changes.",
+        "description": "Planning agent for designing implementation strategies and creating tasks",
+        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "task_create", "task_list"],
+        "prompt": "You are a planning agent. Analyze the codebase, create a numbered implementation plan, and use task_create to create persistent tasks for each step. Do NOT make code changes.",
     },
     "ScriptWriter": {
         "description": "Script writing agent that creates Python scripts and saves them to the scripts/ folder",

@@ -1,0 +1,2 @@
+{"event": "worktree.create.before", "ts": 1772959056.746305, "task": {"id": 2}, "worktree": {"name": "test-worktree", "base_ref": "HEAD"}}
+{"event": "worktree.create.after", "ts": 1772959056.875081, "task": {"id": 2}, "worktree": {"name": "test-worktree", "path": "/Users/mac/Documents/ai/learnclaudecode/learnclaudecode/.worktrees/test-worktree", "branch": "wt/test-worktree", "status": "active"}}

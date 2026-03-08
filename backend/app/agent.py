@@ -1,27 +1,17 @@
 import json
 import logging
 import time
-import asyncio
 
 from langchain_core.messages import HumanMessage, AIMessage
-from backend.app.agent_factory import build_agent
+from backend.app.context import AgentContext
 from backend.app.config import DEEPSEEK_MODEL
-from backend.app.tools_manager import tools_manager
-import backend.app.tools  # noqa: F401 — triggers tool registration
-from backend.app.compact import was_compact_requested
-from backend.app.background import drain_notifications
-from backend.app.team import get_bus
-from backend.app.team import state as _team_state
-from backend.app.context.compaction import estimate_tokens, micro_compact, auto_compact
-from backend.app.session import new_session_key, set_session_key, get_store
-from backend.app import tracer
+from backend.app.notifications import NotificationService
+from backend.app.guards import TodoReminderGuard, ReflectionGatekeeper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 
 G = "\033[90m"
 R = "\033[0m"
-
-THRESHOLD = 50000
 
 TOOL_ICONS = {
     "bash": "💻", "read_file": "📖", "write_file": "✍️", "edit_file": "✏️",
@@ -64,75 +54,61 @@ def _fmt_args(name: str, args: dict) -> str:
 
 class AgentService:
     def __init__(self):
-        self.session_key = None  # 延迟创建，第一次对话时才创建
+        # 核心依赖
+        self.context = AgentContext.create_default("")
+        self.notification_service = NotificationService()
+        # 功能守卫
+        self.todo_reminder = TodoReminderGuard()
+        self.reflection_gate = ReflectionGatekeeper()
+        # UI 状态
+        self._first_run = True
 
-        # 异步加载 MCP 工具
-        asyncio.run(tools_manager.load_mcp_tools())
-
-        self.agent, self.llm = build_agent("")
-        self.rounds_without_todo = 0
-        self.file_writes_since_reflect = 0  # 文件写入后未反思的次数
-        self.reflect_retry_count = 0        # 当前反思重试次数
-        _log("🤖", f"Agent 就绪 | 模型={DEEPSEEK_MODEL}")
+    def switch_session(self, session_key: str):
+        """切换到指定 session，重置所有状态"""
+        self.context.set_session_key(session_key)
+        self.todo_reminder.reset()
+        self.reflection_gate.reset()
+        self._first_run = True
 
     async def run(self, prompt: str, history: list = None) -> str:
         if history is None:
             history = []
 
-        # 第一次对话时创建 session
-        if self.session_key is None:
-            self.session_key = new_session_key()
-            set_session_key(self.session_key)
-            self.agent, self.llm = build_agent(self.session_key)
-            _log("🆕", f"创建新 session: {self.session_key}")
+        # 第一次对话时创建 session（如果还没有）
+        if not self.context.get_session_key():
+            session_key = self.context.new_session_key()
+            self.context.set_session_key(session_key)  # 自动同步到全局
+            _log("🆕", f"创建新 session: {session_key}")
 
-        # Layer 1: micro_compact
-        before_micro = len(history)
-        micro_compact(history)
-        if len(history) < before_micro:
-            get_store().save_compaction("main", "micro", before_micro, len(history))
+        # 第一次 run 时打印 Agent 就绪信息
+        if self._first_run:
+            _log("🤖", f"Agent 就绪 | session={self.context.get_session_key()} | 模型={DEEPSEEK_MODEL}")
+            self._first_run = False
 
-        # Layer 2: auto_compact
-        if estimate_tokens(history, self.llm) > THRESHOLD:
-            _log("🗜️", "[auto_compact triggered]")
-            tracer.emit("compaction", kind="auto", note=f"tokens>{THRESHOLD}")
-            before_auto = len(history)
-            new_history = auto_compact(history, self.llm)
-            history.clear()
-            history.extend(new_history)
-            get_store().save_compaction("main", "auto", before_auto, len(history))
+        # Apply compaction strategies via conversation history
+        conversation_history = self.context.get_conversation_history()
+        conversation_history.set_messages(history)
+        conversation_history.apply_strategies()
+        history = conversation_history.get_messages()
 
-        # 注入 lead inbox 消息（仅当 team 已初始化时，避免提前创建 team 目录）
-        inbox = get_bus().read_inbox("lead") if _team_state._bus is not None else []
-        if inbox and history:
-            history.append(HumanMessage(content=f"<inbox>{json.dumps(inbox, indent=2)}</inbox>"))
-            history.append(AIMessage(content="Noted inbox messages."))
-            _log("📬", f"注入 {len(inbox)} 条 inbox 消息")
-
-        # 注入后台任务完成通知
-        notifs = drain_notifications()
-        if notifs and history:
-            notif_text = "\n".join(
-                f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
-            )
-            history.append(HumanMessage(content=f"<background-results>\n{notif_text}\n</background-results>"))
-            history.append(AIMessage(content="Noted background results."))
-            _log("📡", f"注入 {len(notifs)} 条后台任务通知")
+        # 注入所有待处理通知（inbox、后台任务等）
+        pending_msgs = self.notification_service.get_pending_messages()
+        if pending_msgs and history:
+            history.extend(pending_msgs)
+            _log("📬", f"注入 {len(pending_msgs)//2} 条通知消息")
 
         _log("👤", f"用户输入: {prompt}")
         run_start = time.time()
+        tracer = self.context.get_tracer()
         rid = tracer.new_run_id()
         tracer.set_run_id(rid)
-        tracer.emit("run.start", prompt=prompt, session=self.session_key)
+        tracer.emit("run.start", prompt=prompt, session=self.context.get_session_key())
 
         messages = history + [HumanMessage(content=prompt)]
-        if self.rounds_without_todo >= 3:
-            messages.append(HumanMessage(content="<reminder>请更新你的 TodoWrite 待办事项。</reminder>"))
-        if self.file_writes_since_reflect >= 1:
-            retry_hint = f"（已重试 {self.reflect_retry_count} 次，若仍 NEEDS_REVISION 请升级为 Reflexion）" if self.reflect_retry_count >= 1 else ""
-            messages.append(HumanMessage(
-                content=f"<reflection-gate>你刚写入了文件，必须先调用 Task(subagent_type='Reflect') 校验后才能继续。{retry_hint}</reflection-gate>"
-            ))
+        if self.todo_reminder.should_remind():
+            messages.append(HumanMessage(content=self.todo_reminder.get_reminder_message()))
+        if self.reflection_gate.should_gate():
+            messages.append(HumanMessage(content=self.reflection_gate.get_gate_message()))
         output = ""
         turn = 0
         total_tools = 0
@@ -141,7 +117,7 @@ class AgentService:
         # track pending tool calls so we can match results with call_ids
         _pending_calls: dict[str, dict] = {}  # call_id -> {tool, t_start}
 
-        async for step in self.agent.astream({"messages": messages}, stream_mode="updates"):
+        async for step in self.context.get_agent().astream({"messages": messages}, stream_mode="updates"):
             for node, state in step.items():
                 # DEBUG: 记录所有节点名称，帮助诊断为什么 llm.prompt 没有被记录
                 _log("🔍", f"DEBUG: node={node}, has_messages={len(state.get('messages', []))}")
@@ -199,7 +175,11 @@ class AgentService:
                                     direct_answer=True, output_preview=output[:200])
                 elif node == "tools":
                     # 处理 content 可能是列表的情况
-                    content_str = last.content if isinstance(last.content, str) else str(last.content)
+                    if isinstance(last.content, str):
+                        content_str = last.content
+                    else:
+                        # 使用 json.dumps 保持中文可读性
+                        content_str = json.dumps(last.content, ensure_ascii=False)
 
                     icon = TOOL_ICONS.get(last.name, "🔧")
                     _log("📥", f"  {icon}[{last.name}] 返回: {content_str[:80]}")
@@ -216,44 +196,25 @@ class AgentService:
                                 output=content_str[:500])
 
                     # Save tool result to transcript
-                    get_store().save_tool_result("main", last.name, call_id, content_str)
-                    if last.name == "TodoWrite":
-                        self.rounds_without_todo = 0
-                    else:
-                        self.rounds_without_todo += 1
-                    # 文件写入计数器
-                    if last.name in ("write_file", "edit_file"):
-                        self.file_writes_since_reflect += 1
-                    # Reflect/Reflexion 调用后重置计数器
+                    self.context.get_store().save_tool_result("main", last.name, call_id, content_str)
+
+                    # 更新守卫状态
+                    self.todo_reminder.on_tool_call(last.name)
+
+                    # 提取 subagent_type（用于 Reflection 门禁）
+                    subagent = ""
                     if last.name == "Task":
-                        task_args = _pending_calls.get(call_id, {})
-                        subagent = ""
-                        # 从 tool call args 里取 subagent_type
                         for tc in (last_state_messages[-1].tool_calls if getattr(last_state_messages[-1], "tool_calls", None) else []):
                             if tc.get("id") == call_id or tc.get("name") == "Task":
                                 subagent = tc.get("args", {}).get("subagent_type", "")
                                 break
-                        if subagent in ("Reflect", "Reflexion"):
-                            if "NEEDS_REVISION" in content_str:
-                                self.reflect_retry_count += 1
-                            else:
-                                self.file_writes_since_reflect = 0
-                                self.reflect_retry_count = 0
-                        # 超过 2 次重试强制升级提示（重置计数避免死循环）
-                        if self.reflect_retry_count >= 2:
-                            self.reflect_retry_count = 0
-                            self.file_writes_since_reflect = 0
+                    self.reflection_gate.on_tool_call(last.name, subagent, content_str)
+
                     # drain after each tool batch (mirrors v7: drain before each LLM call)
-                    notifs = drain_notifications()
-                    if notifs:
-                        notif_text = "\n".join(
-                            f"[bg:{n['task_id']}] {n['status']}: {n['result']}" for n in notifs
-                        )
-                        messages = last_state_messages + [
-                            HumanMessage(content=f"<background-results>\n{notif_text}\n</background-results>"),
-                            AIMessage(content="Noted background results."),
-                        ]
-                        _log("📡", f"  同轮注入 {len(notifs)} 条后台任务通知")
+                    pending_msgs = self.notification_service.get_pending_messages()
+                    if pending_msgs:
+                        messages = last_state_messages + pending_msgs
+                        _log("📡", f"  同轮注入 {len(pending_msgs)//2} 条通知消息")
 
         # DeepSeek sometimes returns empty content after tool use — call LLM once more
         if not output:
@@ -263,7 +224,7 @@ class AgentService:
                 HumanMessage(content=f"工具调用结果如下：\n{tool_context}\n\n请根据以上结果，用中文简洁地回答用户的问题，直接引用工具返回的原始数据，不要编造任何ID或数值。")
             ]
             t_fallback = time.time()
-            resp = self.llm.invoke(fallback_messages)
+            resp = self.context.get_overflow_guard().guard_invoke(messages=fallback_messages)
             output = resp.content
             tracer.emit("llm.fallback", duration_ms=round((time.time() - t_fallback) * 1000),
                         output_preview=output[:200])
@@ -277,17 +238,10 @@ class AgentService:
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 tool_calls_data = [{"name": tc["name"], "args": tc["args"]} for tc in msg.tool_calls]
                 break
-        get_store().save_turn("main", prompt, output, tool_calls_data)
+        self.context.get_store().save_turn("main", prompt, output, tool_calls_data)
 
-        # Layer 3: manual compact triggered by compact tool
-        if was_compact_requested():
-            _log("🗜️", "[manual compact]")
-            tracer.emit("compaction", kind="manual")
-            before_manual = len(history)
-            new_history = auto_compact(history, self.llm)
-            history.clear()
-            history.extend(new_history)
-            get_store().save_compaction("main", "manual", before_manual, len(history))
+        # Manual compact is now handled by ManualCompactionStrategy in guard
+        # No need for separate manual compact logic here
 
         duration_ms = round((time.time() - run_start) * 1000)
         tracer.emit("run.end", output=output[:300], turns=turn,
