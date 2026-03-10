@@ -28,8 +28,7 @@ from pathlib import Path
 
 from .constants import SESSIONS_DIR, SESSIONS_INDEX
 from .session import SessionStore
-from .bootstrap import BootstrapLoader, load_soul
-from .memory_store import MemoryStore
+from .memory import GlobalMemoryLoader, MemoryStore
 
 # 全局单例
 _store: SessionStore | None = None
@@ -158,7 +157,7 @@ def list_sessions() -> list[str]:
 __all__ = [
     # 类
     'SessionStore',
-    'BootstrapLoader',
+    'GlobalMemoryLoader',
     'MemoryStore',
 
     # 常量
@@ -187,7 +186,4 @@ __all__ = [
     'get_team_config_path',
     'get_inbox_path',
     'get_agent_transcript_path',
-
-    # Bootstrap 和记忆函数
-    'load_soul',
 ]

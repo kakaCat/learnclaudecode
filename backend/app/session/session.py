@@ -17,8 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .constants import SESSIONS_DIR, SESSIONS_INDEX
-from .bootstrap import BootstrapLoader
-from .memory_store import MemoryStore
+from .memory import GlobalMemoryLoader, MemoryStore
 
 
 class SessionStore:
@@ -28,7 +27,7 @@ class SessionStore:
         SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
         self._index: dict[str, dict] = self._load_index()
         self._current_key: str | None = None
-        self._bootstrap_loader: Optional[BootstrapLoader] = None
+        self._bootstrap_loader: Optional[GlobalMemoryLoader] = None
         self._memory_store: Optional[MemoryStore] = None
 
     def _load_index(self) -> dict[str, dict]:
@@ -99,7 +98,7 @@ class SessionStore:
         self._current_key = key
 
         # 初始化 Bootstrap 加载器（使用全局 .bootstrap 目录）
-        self._bootstrap_loader = BootstrapLoader()
+        self._bootstrap_loader = GlobalMemoryLoader()
 
         # 初始化记忆存储（使用 session workspace）
         workspace_dir = self.get_workspace_dir(key)
@@ -393,7 +392,7 @@ class SessionStore:
 
     # ========== Bootstrap 文件加载 ==========
 
-    def get_bootstrap_loader(self) -> Optional[BootstrapLoader]:
+    def get_bootstrap_loader(self) -> Optional[GlobalMemoryLoader]:
         """获取当前会话的 Bootstrap 加载器"""
         return self._bootstrap_loader
 
@@ -420,14 +419,89 @@ class SessionStore:
         """
         if not self._bootstrap_loader:
             return ""
-        from .bootstrap import load_soul
-        return load_soul()
+        return self._bootstrap_loader.load_soul()
 
     # ========== 记忆管理 ==========
 
     def get_memory_store(self) -> Optional[MemoryStore]:
         """获取当前会话的记忆存储"""
         return self._memory_store
+
+    def get_full_memory(self) -> str:
+        """
+        获取整合后的完整记忆（全局 + 会话）
+
+        Returns:
+            整合后的记忆内容
+        """
+        parts = []
+
+        # 1. 全局记忆（来自 bootstrap）
+        if self._bootstrap_loader:
+            global_memory = self._bootstrap_loader.load_file("MEMORY.md")
+            if global_memory:
+                parts.append("# 全局记忆\n\n" + global_memory)
+
+        # 2. 会话记忆（来自 memory store）
+        if self._memory_store:
+            session_memory = self._memory_store.load_evergreen()
+            if session_memory:
+                parts.append("# 会话记忆\n\n" + session_memory)
+
+        return "\n\n---\n\n".join(parts) if parts else ""
+
+    def get_full_context(self) -> str:
+        """
+        获取完整上下文（包括身份、人格、用户、记忆）
+
+        Returns:
+            完整的 Agent 上下文
+        """
+        parts = []
+
+        if not self._bootstrap_loader:
+            return ""
+
+        # 1. 人格和身份
+        soul = self._bootstrap_loader.load_file("SOUL.md")
+        if soul:
+            parts.append(f"# 人格\n\n{soul}")
+
+        identity = self._bootstrap_loader.load_file("IDENTITY.md")
+        if identity:
+            parts.append(f"# 身份\n\n{identity}")
+
+        # 2. 用户信息
+        user = self._bootstrap_loader.load_file("USER.md")
+        if user:
+            parts.append(f"# 用户\n\n{user}")
+
+        # 3. 全局记忆
+        global_memory = self._bootstrap_loader.load_file("MEMORY.md")
+        if global_memory:
+            parts.append(f"# 全局记忆\n\n{global_memory}")
+
+        # 4. 会话记忆
+        if self._memory_store:
+            session_memory = self._memory_store.load_evergreen()
+            if session_memory:
+                parts.append(f"# 会话记忆\n\n{session_memory}")
+
+        return "\n\n---\n\n".join(parts) if parts else ""
+
+    def promote_to_global_memory(self, content: str) -> bool:
+        """
+        将重要记忆提升到全局记忆（bootstrap/MEMORY.md）
+
+        Args:
+            content: 要提升的记忆内容
+
+        Returns:
+            是否成功
+        """
+        if not self._bootstrap_loader:
+            return False
+        return self._bootstrap_loader.append_to_memory(content)
 
     def write_memory(self, content: str, category: str = "general") -> str:
         """

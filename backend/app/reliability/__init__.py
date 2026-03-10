@@ -46,7 +46,8 @@ from .lifecycle import (
     get_global_lifecycle,
     start_lifecycle,
     stop_lifecycle,
-    get_lifecycle_status
+    get_lifecycle_status,
+    is_lifecycle_healthy
 )
 
 # 健康检查
@@ -61,8 +62,20 @@ from .monitoring import (
     PerformanceMetrics
 )
 
+# 智能重试
+from .retry import (
+    RetryStrategy,
+    get_retry_strategy
+)
+
+# 自我监控
+from .monitor import (
+    SelfMonitor,
+    get_monitor
+)
+
 # 异常处理
-from .exceptions import (
+from backend.app.exceptions import (
     AgentError,
     ToolError,
     SessionError,
@@ -107,6 +120,7 @@ __all__ = [
     'start_lifecycle',
     'stop_lifecycle',
     'get_lifecycle_status',
+    'is_lifecycle_healthy',
 
     # 健康检查
     'start_health_server',
@@ -115,6 +129,14 @@ __all__ = [
     # 性能监控
     'PerformanceMonitor',
     'PerformanceMetrics',
+
+    # 智能重试
+    'RetryStrategy',
+    'get_retry_strategy',
+
+    # 自我监控
+    'SelfMonitor',
+    'get_monitor',
 
     # 异常处理
     'AgentError',

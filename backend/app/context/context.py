@@ -4,6 +4,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import BaseTool
 from langchain.agents import create_agent
 
+from backend.app.context.base import BaseAgentContext
 from backend.app.context.overflow_guard import OverflowGuard
 from backend.app.memory import ConversationHistory
 from backend.app.llm import get_llm
@@ -12,7 +13,7 @@ from backend.app.prompts import get_system_prompt
 from backend.app.context.tracer import Tracer
 
 
-class AgentContext:
+class AgentContext(BaseAgentContext):
     """
     Application context that manages all agent components.
 
@@ -182,13 +183,3 @@ class AgentContext:
         if self._tracer is None:
             raise RuntimeError("Context not initialized. Call create_default() first.")
         return self._tracer
-
-    def new_session_key(self) -> str:
-        """Generate new session key"""
-        from backend.app.session import new_session_key
-        return new_session_key()
-
-    def get_store(self):
-        """Get session store"""
-        from backend.app.session import get_store
-        return get_store()

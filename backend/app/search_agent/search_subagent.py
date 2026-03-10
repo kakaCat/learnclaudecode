@@ -8,7 +8,6 @@ from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
 from backend.app.llm import get_llm
 from backend.app.tools.implementations.search_tool import web_search
-from backend.app.tools.implementations.fetch_tool import fetch_url
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +17,7 @@ R = "\033[0m"
 BUDGET = {"simple": 4, "medium": 5, "hard": 10, "extreme": 15}
 MAX_TOOL_CALLS = 20
 
-TOOLS = [web_search, fetch_url]
+TOOLS = [web_search]
 
 
 class SearchSubagent:
@@ -42,8 +41,8 @@ class SearchSubagent:
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         system = (
             f"Current time: {current_time}\n\n"
-            "You are a research agent. Use web_search and fetch_url to thoroughly research the query.\n"
-            "Search multiple angles. Fetch important URLs for full content when needed.\n"
+            "You are a research agent. Use web_search to thoroughly research the query.\n"
+            "Search multiple angles and keywords to gather comprehensive information.\n"
             f"Budget: up to {self._max_iter} rounds of tool calls."
         )
         if topic:

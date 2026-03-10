@@ -201,6 +201,8 @@ async def interactive(agent: AgentService, history: list):
                     raise
                 except Exception as e:
                     print(f"\n❌ 任务执行出错: {e}")
+                    import traceback
+                    traceback.print_exc()
                     print()
 
             running_task = asyncio.create_task(run_agent_task(query))
@@ -257,6 +259,8 @@ if __name__ == "__main__":
             print("⚠️ 生命周期管理系统启动失败，继续运行")
     except Exception as e:
         print(f"❌ 生命周期管理系统启动异常: {e}")
+        import traceback
+        traceback.print_exc()
 
     history = []
 

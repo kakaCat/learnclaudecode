@@ -11,7 +11,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from backend.app.llm import get_llm
 from backend.app.search_agent.search_subagent import SearchSubagent
 from backend.app.search_agent.citation_agent import CitationAgent
-from backend.app.search.duckduckgo import DuckDuckGoSearch
 from backend.app.session import get_workspace_dir
 
 logger = logging.getLogger(__name__)
@@ -47,7 +46,6 @@ class SearchLeadAgent:
 
     def __init__(self):
         self._llm = get_llm()
-        self._ddg = DuckDuckGoSearch(max_results=3)   # 仅用于探索模式 probe
         self._citation = CitationAgent()
 
     def run(self, topic: str, research_dir: Path | None = None) -> str:
@@ -112,10 +110,13 @@ class SearchLeadAgent:
     # ── 探索模式 ──────────────────────────────────────────────────────────────
 
     def _probe(self, topic: str) -> str:
-        """委派前先用1次搜索探索信息版图，只返回标题+URL列表，供 classify 判断查询类型。"""
-        raw = self._ddg.search(topic)
-        lines = [f"{i}. {r['title']} — {r['url']}" for i, r in enumerate(raw, 1)]
-        return "\n".join(lines)
+        """
+        探索信息版图，用于判断查询类型。
+
+        由于没有可靠的搜索工具，直接返回 topic 本身作为 hint。
+        LLM 会根据 topic 的语义特征来分类查询类型。
+        """
+        return f"Topic: {topic}"
 
     # ── 查询类型分类 ──────────────────────────────────────────────────────────
 

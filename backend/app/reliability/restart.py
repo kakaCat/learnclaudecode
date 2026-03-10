@@ -14,7 +14,7 @@ from typing import Optional, Dict, Any
 import json
 from datetime import datetime
 
-from backend.app.reliability.exceptions import AgentError
+from backend.app.exceptions import AgentError
 from .monitoring import PerformanceMonitor
 from .heartbeat import HeartbeatSystem
 

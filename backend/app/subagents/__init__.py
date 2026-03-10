@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 AGENT_TYPES = {
     "Explore": {
         "description": "Read-only agent for exploring code, finding files, searching",
-        "tools": ["bash", "read_file", "glob", "grep", "list_dir"],
-        "prompt": "You are an exploration agent. Search and analyze, but never modify files. Return a concise summary.",
+        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "memory_search", "memory_write"],
+        "prompt": "You are an exploration agent. Search and analyze, but never modify files. Use memory_search to recall past findings. Return a concise summary.",
     },
     "general-purpose": {
         "description": "Full agent for implementing features and fixing bugs",
@@ -39,72 +39,74 @@ AGENT_TYPES = {
     },
     "Plan": {
         "description": "Planning agent for designing implementation strategies and creating tasks",
-        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "task_create", "task_list"],
-        "prompt": "You are a planning agent. Analyze the codebase, create a numbered implementation plan, and use task_create to create persistent tasks for each step. Do NOT make code changes.",
+        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "task_create", "task_list", "memory_search", "memory_write"],
+        "prompt": "You are a planning agent. Use memory_search to recall past decisions and patterns. Analyze the codebase, create a numbered implementation plan, and use task_create to create persistent tasks for each step. Save important decisions with memory_write. Do NOT make code changes.",
     },
     "ScriptWriter": {
         "description": "Script writing agent that creates Python scripts and saves them to the scripts/ folder",
-        "tools": ["read_file", "write_file", "glob", "grep", "list_dir"],
-        "prompt": "You are a script writing agent. Write Python scripts and save them to the scripts/ directory using write_file. Always use paths like 'scripts/<name>.py'. Return the file path when done.",
+        "tools": ["read_file", "write_file", "glob", "grep", "list_dir", "memory_search", "memory_write"],
+        "prompt": "You are a script writing agent. Use memory_search to recall script patterns and best practices. Write Python scripts and save them to the scripts/ directory using write_file. Always use paths like 'scripts/<name>.py'. Save useful patterns with memory_write. Return the file path when done.",
     },
     "Reflect": {
         "description": "Reflection agent: reads relevant files to verify correctness, returns verdict PASS|NEEDS_REVISION with missing/superfluous/suggestion",
-        "tools": ["read_file"],
+        "tools": ["read_file", "memory_search", "memory_write"],
         "prompt": (
-            "你是严格的代码审查员。用 read_file 读取相关文件后再评判，不要仅凭 prompt 中的描述下结论。\n"
+            "你是严格的代码审查员。用 memory_search 召回审查标准和常见问题，用 read_file 读取相关文件后再评判，不要仅凭 prompt 中的描述下结论。\n"
             "Return ONLY valid JSON with keys:\n"
             "  verdict: 'PASS' or 'NEEDS_REVISION'\n"
             "  missing: list of missing aspects\n"
             "  superfluous: list of unnecessary/redundant parts\n"
             "  suggestion: concise actionable improvement advice (empty string if PASS)\n"
-            "No explanation outside the JSON."
+            "Use memory_write to save recurring issues. No explanation outside the JSON."
         ),
     },
     "Reflexion": {
         "description": "Reflexion agent: two-phase Responder+Revisor. Gathers context via tools, critiques initial response, then produces improved version",
-        "tools": ["bash", "read_file", "glob", "grep", "list_dir"],
+        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "memory_search", "memory_write"],
         "prompt": (
             "You are a Reflexion agent with two phases.\n"
-            "Phase 1 - Responder: critically analyze the initial response against the goal. "
+            "Phase 1 - Responder: use memory_search to recall improvement patterns, critically analyze the initial response against the goal. "
             "Identify what is MISSING and what is SUPERFLUOUS.\n"
-            "Phase 2 - Revisor: produce an improved response that addresses all critique points.\n"
+            "Phase 2 - Revisor: produce an improved response that addresses all critique points. Use memory_write to save effective patterns.\n"
             "Return ONLY valid JSON: {\"critique\": \"...\", \"revised\": \"...\"}"
         ),
     },
     "SearchSubagent": {
         "description": "Focused search agent that executes a single web search query and returns structured results. Spawned in parallel by orchestrator for multi-query research.",
-        "tools": ["web_search", "web_fetch"],
+        "tools": ["web_fetch", "memory_search", "memory_write"],
         "prompt": (
-            "You are a search subagent. Your only job is to execute the given search query using web_search "
-            "and return the results clearly.\n"
-            "- Run web_search with the provided query\n"
-            "- Return results as-is, preserving titles, URLs, and snippets\n"
-            "- Do NOT summarize or interpret, just return raw search results\n"
-            "- If search fails, report the error clearly"
+            "You are a search subagent. Use memory_search to recall user's preferred information sources and effective search strategies.\n"
+            "- Use web_fetch to retrieve content from specific URLs\n"
+            "- Return results as-is, preserving titles, URLs, and content\n"
+            "- Highlight results from user's preferred sources if found in memory\n"
+            "- Do NOT summarize or interpret, just return raw results\n"
+            "- If fetch fails, report the error clearly\n"
+            "- Use memory_write to save effective search patterns"
         ),
     },
     "OODASubagent": {
         "description": "OODA loop agent for dynamic, uncertain tasks. Cycles through Observe→Orient→Decide→Act until goal is reached. Best for tasks requiring iterative information gathering before acting.",
-        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "write_file"],
+        "tools": ["bash", "read_file", "glob", "grep", "list_dir", "write_file", "memory_search", "memory_write"],
         "prompt": (
             "You are an OODA loop agent. You operate in explicit cycles:\n"
-            "- Observe: collect raw information using tools\n"
+            "- Observe: collect raw information using tools, use memory_search to recall past solutions\n"
             "- Orient: analyze what you found, identify gaps\n"
             "- Decide: choose next action (observe more / act / done)\n"
-            "- Act: execute the decision\n"
+            "- Act: execute the decision, use memory_write to save important findings\n"
             "Keep cycling until the goal is fully achieved."
         ),
     },
     "IntentRecognition": {
         "description": "意图识别智能体，分析用户输入识别核心意图、所需信息和模糊点，返回结构化分析结果",
-        "tools": [],  # 纯推理，无需工具
+        "tools": ["memory_search", "memory_write"],
         "prompt": (
-            "你是意图识别智能体。分析用户输入，识别以下内容：\n"
+            "你是意图识别智能体。先用 memory_search 查询用户历史偏好和意图模式，然后分析用户输入，识别以下内容：\n"
             "1. 主要意图（用户想完成什么？）\n"
             "2. 次要意图（隐含的目标或子任务？）\n"
             "3. 所需信息（完成意图需要哪些信息？）\n"
             "4. 模糊点（哪些地方不清楚或可能有多种理解？）\n"
             "5. 置信度（对意图判断的确定程度？）\n\n"
+            "用 memory_write 记录识别出的意图模式。\n\n"
             "只返回有效的 JSON，包含以下键：\n"
             "  primary_intent: string（主要意图）\n"
             "  secondary_intents: list of strings（次要意图列表）\n"
@@ -117,20 +119,61 @@ AGENT_TYPES = {
     },
     "Clarification": {
         "description": "澄清智能体，基于意图分析生成针对性问题，解决用户请求中的模糊点",
-        "tools": [],  # 纯推理，无需工具
+        "tools": ["memory_search", "memory_write"],
         "prompt": (
-            "你是澄清智能体。基于提供的意图分析，生成针对性问题来解决模糊点。\n\n"
+            "你是澄清智能体。先用 memory_search 查询用户历史澄清记录和偏好，避免重复提问已知信息。基于提供的意图分析，生成针对性问题来解决模糊点。\n\n"
             "指导原则：\n"
             "- 提出具体、可操作的问题（不要模糊的问题）\n"
             "- 按重要性排序问题（最关键的放前面）\n"
             "- 说明每个问题为什么重要\n"
             "- 适当时提供默认选项\n"
-            "- 保持问题简洁易答\n\n"
+            "- 保持问题简洁易答\n"
+            "- 不要问用户已经明确表达过偏好的问题\n\n"
+            "用 memory_write 记录用户的澄清回答。\n\n"
             "只返回有效的 JSON，包含以下键：\n"
             "  questions: list of {question: string, context: string, options: list of strings (可选), priority: 'high'|'medium'|'low'}\n"
             "  can_proceed_without_answers: boolean（是否可以不回答就继续）\n"
             "  risk_if_assuming: string（如果不澄清直接假设会有什么风险）\n"
             "JSON 之外不要有任何解释。"
+        ),
+    },
+    "CDPBrowser": {
+        "description": "CDP浏览器操作智能体，使用OODA循环完成任何需要浏览器交互的复杂任务",
+        "tools": ["cdp_browser", "memory_search", "memory_write"],
+        "prompt": (
+            "你是CDP浏览器操作智能体。使用OODA循环完成浏览器任务：\n\n"
+            "- Observe: 使用 cdp_browser 观察当前页面状态（URL、元素、内容），用 memory_search 召回网站操作流程\n"
+            "- Orient: 理解当前处于哪个步骤，判断进度和目标\n"
+            "- Decide: 决定下一步操作（导航/填写/点击/提取/完成）\n"
+            "- Act: 执行操作并进入下一个循环，用 memory_write 保存成功的操作流程\n\n"
+            "约束：\n"
+            "- 必须实际访问网站，不要生成假报告\n"
+            "- 如果CDP连接失败，明确说明原因和解决方法\n"
+            "- 返回的数据必须包含完整信息\n"
+            "- 最多循环20次，如果无法完成则说明原因"
+        ),
+    },
+    "ToolRepair": {
+        "description": "工具修复智能体，检测并尝试修复不可用的工具（最多3次尝试，防止死循环）",
+        "tools": ["bash", "check_query_tools", "memory_search", "memory_write"],
+        "prompt": (
+            "你是工具修复智能体。用 memory_search 召回修复历史，分析错误信息并尝试修复。\n\n"
+            "修复流程：\n"
+            "1. 用 check_query_tools 检测工具状态，分析错误信息\n"
+            "2. 根据错误类型推断修复方法：\n"
+            "   - 端口未开放 → 启动对应服务\n"
+            "   - 进程未运行 → 启动进程\n"
+            "   - 依赖缺失 → 安装依赖\n"
+            "   - 权限不足 → 调整权限\n"
+            "   - 网络问题 → 检查连接/重试\n"
+            "3. 用 bash 执行修复命令\n"
+            "4. 再次 check_query_tools 验证\n"
+            "5. 用 memory_write 记录成功的修复方法\n\n"
+            "约束（防止死循环）：\n"
+            "- 最多 3 次修复尝试\n"
+            "- 每次修复后必须验证\n"
+            "- 3 次后仍失败则返回失败\n\n"
+            "返回 JSON: {\"success\": bool, \"fixed_tools\": [...], \"failed_tools\": [...], \"attempts\": N}"
         ),
     },
 }
@@ -167,6 +210,8 @@ def _run_react_loop(
     Returns:
         (output, tool_count)
     """
+    from backend.app.memory import ConversationHistory
+
     G = "\033[90m"
     R = "\033[0m"
     tool_count = 0
@@ -175,8 +220,17 @@ def _run_react_loop(
     sub_turn = 0
     _pending_calls: dict[str, dict] = {}
 
+    # 创建历史管理器（使用主 Agent 的压缩策略）
+    history_manager = ConversationHistory.create_default(
+        llm=llm,
+        tools=[],
+        max_tokens=100000  # Subagent 使用更保守的限制
+    )
+    initial_messages = [HumanMessage(content=prompt)]
+    history_manager.set_messages(initial_messages)
+
     for step in agent.stream(
-        {"messages": [HumanMessage(content=prompt)]},
+        {"messages": history_manager.get_messages()},
         stream_mode="updates",
         config={"recursion_limit": recursion_limit},
     ):
@@ -184,6 +238,20 @@ def _run_react_loop(
             last = state["messages"][-1]
             if node == "agent":
                 sub_turn += 1
+
+                # 更新历史管理器
+                history_manager.set_messages(state["messages"])
+
+                # 检查是否需要压缩（每轮都检查）
+                tokens = history_manager.estimate_tokens()
+                if tokens > 80000:  # 80K tokens 阈值
+                    print(f"{G}   🗜️ [{subagent_type}] 压缩前: {len(state['messages'])} 消息, ~{tokens} tokens{R}")
+                    history_manager.apply_strategies()
+                    compressed_messages = history_manager.get_messages()
+                    new_tokens = history_manager.estimate_tokens()
+                    print(f"{G}   ✅ [{subagent_type}] 压缩后: {len(compressed_messages)} 消息, ~{new_tokens} tokens{R}")
+                    # 注意：这里不能直接修改 state，LangGraph 会在下一轮使用压缩后的消息
+
                 if getattr(last, "tool_calls", None):
                     decisions = []
                     for tc in last.tool_calls:
@@ -211,6 +279,9 @@ def _run_react_loop(
                             duration_ms=duration_ms,
                             ok=not last.content.startswith("Error:"),
                             output=last.content[:500])
+
+                # 工具执行后也更新历史
+                history_manager.set_messages(state["messages"])
 
     # DeepSeek sometimes returns empty content after tool use — call LLM once more
     if not output and tool_count > 0:
@@ -272,9 +343,25 @@ def _run_ooda_loop(
     observations: list[str] = []
     history: list[str] = []
 
+    def _compress_observations():
+        """压缩 observations 列表，避免上下文过长"""
+        nonlocal observations
+        if len(observations) > 10:  # 超过 10 条观察结果时压缩
+            obs_text = "\n".join(f"- {obs[:200]}" for obs in observations)
+            summary = llm.invoke([
+                SystemMessage(content="你是一个信息总结助手"),
+                HumanMessage(content=f"请简洁总结以下观察结果，保留关键信息：\n\n{obs_text}")
+            ])
+            print(f"{G}   🗜️ [OODA] 压缩 observations: {len(observations)} → 1 条总结{R}")
+            observations = [f"[总结] {summary.content}"]
+
     for cycle in range(1, max_cycles + 1):
         print(f"{G}   🔄 [OODA] cycle {cycle}/{max_cycles}{R}")
         tracer.emit("ooda.cycle", span_id=span_id, agent_type=subagent_type, cycle=cycle)
+
+        # 每 3 个 cycle 压缩一次 observations
+        if cycle > 1 and cycle % 3 == 0:
+            _compress_observations()
 
         # ── Observe ──────────────────────────────────────────────────────────
         obs_resp = llm.invoke([
@@ -429,6 +516,43 @@ def _save_subagent_session(subagent_type: str, prompt: str, output: str) -> None
     save_session(subagent_type, [HumanMessage(content=prompt), AIMessage(content=output)])
 
 
+def _check_and_truncate_prompt(prompt: str, llm: ChatOpenAI) -> str:
+    """
+    Check prompt size and truncate if necessary to prevent context overflow.
+
+    DeepSeek has 131K token limit. We use conservative limits:
+    - System prompt: ~10K tokens
+    - User prompt: max 100K tokens (safe margin)
+
+    Args:
+        prompt: User input prompt
+        llm: LLM instance for token estimation
+
+    Returns:
+        Original or truncated prompt
+    """
+    # Estimate tokens (1 token ≈ 4 chars for Chinese/English mix)
+    estimated_tokens = len(prompt) // 4
+    max_prompt_tokens = 100000  # Conservative limit
+
+    if estimated_tokens <= max_prompt_tokens:
+        return prompt
+
+    # Truncate to safe size
+    max_chars = max_prompt_tokens * 4
+    truncated = prompt[:max_chars]
+
+    # Try to truncate at line boundary
+    last_newline = truncated.rfind('\n')
+    if last_newline > max_chars * 0.9:  # If we can save 90%+ content
+        truncated = truncated[:last_newline]
+
+    warning = f"\n\n[⚠️ Prompt truncated from {len(prompt)} to {len(truncated)} chars to prevent context overflow]"
+    print(f"\033[93m{warning}\033[0m")
+
+    return truncated + warning
+
+
 # =============================================================================
 # Subagent Runner
 # =============================================================================
@@ -440,6 +564,9 @@ def run_subagent(description: str, prompt: str, subagent_type: str, base_tools: 
 
     # 1. prepare
     sub_tools, sub_system, llm = _prepare_subagent(subagent_type, base_tools)
+
+    # 1.5. check and truncate prompt if too large
+    prompt = _check_and_truncate_prompt(prompt, llm)
 
     # 2. start span
     span_id, start = _start_span(subagent_type, description, sub_tools)

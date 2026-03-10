@@ -95,6 +95,28 @@ def build_system_prompt(
 
 工作循环：规划 -> 使用工具执行 -> 更新待办事项 -> 汇报结果。
 
+## 工具失败处理规则（强制执行，优先级最高）
+
+### CDP浏览器失败处理
+- cdp_browser 返回"服务不可用"时：
+  1. 工具会自动尝试启动Chrome（等待3秒）
+  2. 如果自动启动成功，继续执行原任务
+  3. 如果自动启动失败（Chrome未安装），明确告知用户"任务失败：Chrome未安装"
+  4. **禁止**切换到 search_lead 或 web_search 生成"研究报告"
+  5. **禁止**生成"历史数据分析"或"价格范围估算"
+
+### 实时数据查询任务识别
+- 任务特征：查询、购买、预订 + 机票、酒店、商品、价格等实时数据
+- 必须使用：cdp_browser（访问实际网站）
+- 禁止降级：不要切换到 search_lead 生成"研究报告"
+- 失败处理：明确说"无法获取实时数据，任务失败"，不要生成假数据
+
+### 记忆规则强制执行
+⚠️ **必须遵守**: 参考上文"Memory"章节中的"行为约束"规则，特别是：
+1. **禁止生成假报告**：无法获取实时数据时，明确说"任务失败"
+2. **知行一致**：提到某个网站就必须访问它
+3. **结果验证**：查询机票必须返回航班号、时间、价格
+
 意图识别规则（优先执行）：
 - 用户输入模糊、缺少关键信息时，必须先调用 Task(subagent_type="IntentRecognition", description="识别用户意图", prompt="用户说：<原始输入>")
 - IntentRecognition 返回 needs_clarification=true 或 confidence<0.7 时，必须调用 Task(subagent_type="Clarification", description="生成澄清问题", prompt="基于以下意图分析生成问题：<IntentRecognition的JSON结果>")

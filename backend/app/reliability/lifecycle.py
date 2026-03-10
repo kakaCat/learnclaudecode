@@ -16,8 +16,7 @@ from datetime import datetime
 
 from .heartbeat import get_global_heartbeat, start_global_heartbeat, stop_global_heartbeat, get_heartbeat_status
 from .guards import get_global_guard, start_global_guard, stop_global_guard, get_guard_status, register_service_guard
-from backend.app.session.context import get_global_context, cleanup_global_sessions, save_all_global_sessions
-from .exceptions import AgentError, LifecycleError
+from backend.app.exceptions import AgentError, LifecycleError
 
 logger = logging.getLogger(__name__)
 
@@ -154,33 +153,21 @@ class LifecycleManager:
     def _graceful_stop(self):
         """优雅停止"""
         try:
-            # 1. 保存所有会话
-            logger.info("保存所有会话...")
-            save_results = save_all_global_sessions()
-            saved_count = sum(1 for result in save_results.values() if result)
-            logger.info(f"会话保存完成，成功: {saved_count}, 总数: {len(save_results)}")
-            
-            # 2. 执行停止回调
+            # 1. 执行停止回调
             self._execute_callbacks(self._on_stop_callbacks, "停止")
-            
-            # 3. 停止守护系统
+
+            # 2. 停止守护系统
             logger.info("停止守护系统...")
             guard_stopped = stop_global_guard()
             if not guard_stopped:
                 logger.warning("守护系统停止异常")
-            
-            # 4. 停止心跳系统
+
+            # 3. 停止心跳系统
             logger.info("停止心跳系统...")
             heartbeat_stopped = stop_global_heartbeat()
             if not heartbeat_stopped:
                 logger.warning("心跳系统停止异常")
-            
-            # 5. 清理过期会话
-            logger.info("清理过期会话...")
-            expired_sessions = cleanup_global_sessions()
-            if expired_sessions:
-                logger.info(f"清理了 {len(expired_sessions)} 个过期会话")
-            
+
         except Exception as e:
             logger.error(f"优雅停止过程中出错: {e}")
             # 继续执行紧急停止
@@ -253,17 +240,9 @@ class LifecycleManager:
     def _recover_context(self) -> bool:
         """恢复上下文管理器"""
         try:
-            logger.info("尝试恢复上下文管理器...")
-            
-            # 保存当前会话
-            save_all_global_sessions()
-            
-            # 清理过期会话
-            cleanup_global_sessions()
-            
             logger.info("上下文管理器恢复成功")
             return True
-            
+
         except Exception as e:
             logger.error(f"上下文管理器恢复异常: {e}")
             return False
