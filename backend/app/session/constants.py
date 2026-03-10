@@ -12,5 +12,5 @@ SESSIONS_DIR = PROJECT_ROOT / ".sessions"
 # 会话索引文件
 SESSIONS_INDEX = SESSIONS_DIR / "sessions.json"
 
-# 全局记忆配置目录
-MEMORY_DIR = PROJECT_ROOT / ".memory"
+# 全局记忆配置目录（移动到 backend/memory/）
+MEMORY_DIR = PROJECT_ROOT / "backend" / "memory"

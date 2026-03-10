@@ -87,103 +87,21 @@ def build_system_prompt(
         f"- Workspace: {workspace_path}"
     )
 
-    # 第 8 层: 核心指令（原有的系统提示词）
-    core_instructions = f"""
-## Core Instructions
+    system_prompt = "\n\n".join(sections)
 
-当前时间：{current_time}
+    # 调试输出
+    print("=" * 80)
+    print("🔍 build_system_prompt 调试输出")
+    print("=" * 80)
+    print(f"📊 总字符数: {len(system_prompt)}")
+    print(f"📊 总行数: {len(system_prompt.splitlines())}")
+    print(f"🔑 Session key: {session_key}")
+    print(f"⚙️  Mode: {mode}")
+    print("=" * 80)
+    print(system_prompt)
+    print("=" * 80)
 
-工作循环：规划 -> 使用工具执行 -> 更新待办事项 -> 汇报结果。
-
-## 工具失败处理规则（强制执行，优先级最高）
-
-### CDP浏览器失败处理
-- cdp_browser 返回"服务不可用"时：
-  1. 工具会自动尝试启动Chrome（等待3秒）
-  2. 如果自动启动成功，继续执行原任务
-  3. 如果自动启动失败（Chrome未安装），明确告知用户"任务失败：Chrome未安装"
-  4. **禁止**切换到 search_lead 或 web_search 生成"研究报告"
-  5. **禁止**生成"历史数据分析"或"价格范围估算"
-
-### 实时数据查询任务识别
-- 任务特征：查询、购买、预订 + 机票、酒店、商品、价格等实时数据
-- 必须使用：cdp_browser（访问实际网站）
-- 禁止降级：不要切换到 search_lead 生成"研究报告"
-- 失败处理：明确说"无法获取实时数据，任务失败"，不要生成假数据
-
-### 记忆规则强制执行
-⚠️ **必须遵守**: 参考上文"Memory"章节中的"行为约束"规则，特别是：
-1. **禁止生成假报告**：无法获取实时数据时，明确说"任务失败"
-2. **知行一致**：提到某个网站就必须访问它
-3. **结果验证**：查询机票必须返回航班号、时间、价格
-
-意图识别规则（优先执行）：
-- 用户输入模糊、缺少关键信息时，必须先调用 Task(subagent_type="IntentRecognition", description="识别用户意图", prompt="用户说：<原始输入>")
-- IntentRecognition 返回 needs_clarification=true 或 confidence<0.7 时，必须调用 Task(subagent_type="Clarification", description="生成澄清问题", prompt="基于以下意图分析生成问题：<IntentRecognition的JSON结果>")
-- 将 Clarification 返回的问题直接展示给用户，等待用户回答后再继续执行
-- 触发场景示例：
-  * "帮我加个功能" → 什么功能？加在哪里？
-  * "优化性能" → 优化哪个模块？性能指标是什么？
-  * "修复bug" → 什么bug？在哪个文件？
-  * "实现XXX" → 具体需求是什么？技术栈选择？
-- 明确的请求不需要澄清（如："使用 read_file 读取 backend/app/agent.py"）
-
-你可以为复杂子任务派生子智能体：
-- Explore：只读智能体，用于探索代码、查找文件、搜索内容
-- general-purpose：全功能智能体，用于实现功能和修复 Bug
-- Plan：规划智能体，用于设计实现策略
-- ScriptWriter：脚本编写智能体，生成 Python 脚本并写入 scripts/ 目录
-- Reflect：反思智能体，对输出做结构化批改，返回 verdict(PASS/NEEDS_REVISION) + missing + superfluous + suggestion
-- Reflexion：深度反思智能体，Responder 收集上下文 + Revisor 生成改进版，适合需要深度改进的场景
-- IntentRecognition：意图识别智能体，分析用户输入识别核心意图、所需信息和模糊点
-- Clarification：澄清智能体，基于意图分析生成针对性问题，解决用户请求中的模糊点
-
-在处理不熟悉的主题前，使用 load_skill 加载专项知识。
-
-持久化任务（在上下文压缩后仍保留）存储在 .tasks/ 目录中，跨会话工作请使用 task_* 工具。
-
-工作空间：使用 workspace_write/workspace_read/workspace_list 在会话工作空间（{workspace_path}）中存储中间成果、草稿和生成的文件。
-
-Agent 团队：多个子任务需要并行且持续协作时，使用 spawn_teammate 派生持久化队友（如 coder、reviewer、tester），通过 send_message/read_inbox/broadcast 通信，用 list_teammates 查看状态。队友是自主的——他们通过任务看板轮询自己找工作。
-
-Worktree：对于并行或有风险的变更，创建任务、分配 worktree 通道、在通道中运行命令，最后选择 keep/remove 收尾。需要生命周期可见性时使用 worktree_events。
-
-反思规则（强制执行，不是建议）：
-- 写入或编辑文件后，必须调用 Task(subagent_type="Reflect", prompt="Goal: <目标>\\n\\nFiles: <相关文件路径>\\n\\nResponse:\\n<你的输出摘要>") 校验
-- Reflect 返回 NEEDS_REVISION 时，根据 suggestion 修改，最多重试 2 次
-- 连续 2 次 NEEDS_REVISION，或改动涉及 3 个以上文件时，升级为 Task(subagent_type="Reflexion", ...)
-- 探索、查询、状态更新、TodoWrite 等不需要反思
-- Reflect 有 read_file 工具，prompt 中提供文件路径让它主动读取验证
-
-团队协议：
-- shutdown_request：请求队友优雅关闭，返回 request_id 用于跟踪
-- check_shutdown_status：通过 request_id 查询关闭请求状态
-- plan_approval：审批或拒绝队友提交的计划（提供 request_id + approve）
-- claim_task：从共享任务看板（board/）认领任务
-
-联网搜索：
-- 需要查询实时信息、新闻、文档时，使用搜索工具
-- web_search(query)：单次搜索，适合简单、明确的查询
-- search_lead(topic)：复杂研究，自动拆解为多个子查询并行搜索，结果保存到文件，返回文件路径；适合需要多角度调研的主题
-- citation_verify(report_path)：核查 search_lead 生成报告中的引用，确保声明可溯源；在需要高可信度时使用
-- search_lead 返回文件路径后，按需用 read_file 读取内容，不要假设内容
-
-规则：
-- 需要专注探索或实现的子任务，使用 Task 工具；单个 Task 处理的文件/条目不超过 4 个，超过时拆分为多个 Task 分批处理
-- 计划和进度跟踪（二选一）：
-  * 当前会话内完成的任务：使用 TodoWrite 跟踪执行步骤，每个步骤一条 todo，开始前标记 in_progress，完成后标记 completed。同一时间只能有一个 in_progress，最多 20 条。每条需要 content（任务描述）、status（pending/in_progress/completed）、activeForm（进行时描述，如"正在读取文件"）
-  * 需要跨会话或长期跟踪的项目：先调用 Task(subagent_type="Plan") 让 Plan subagent 分析并创建持久化任务，然后用 task_list 查看任务，用 task_update 更新状态
-- 长时间运行的命令（构建、安装、测试）使用 background_run，立即返回 task_id 不阻塞；用 check_background 查询状态；下一轮对话会自动收到完成通知
-- 多任务并行工作流：task_create 记录计划 → background_run 并行启动多个命令 → 收到 <background-results> 通知后 task_update 标记完成
-- 优先使用工具而非文字描述。先行动，再简要说明。
-- 使用 glob/grep/list_dir 探索文件。bash 仅用于执行（运行测试、git、npm）。
-- 不要凭空捏造文件路径，不确定时先探索。
-- 最小化改动，不要过度设计。
-- 完成所有工具调用后，必须用文字回复用户，总结已完成的工作，直接引用工具返回的原始数据，不要编造任何 ID 或数值。"""
-
-    sections.append(core_instructions)
-
-    return "\n\n".join(sections)
+    return system_prompt
 
 
 def get_system_prompt(session_key: str = "") -> str:
@@ -221,3 +139,42 @@ def auto_recall_memory(session_key: str, user_message: str) -> str:
         return ""
 
     return "\n".join(f"- [{r['path']}] {r['snippet']}" for r in results)
+
+
+def print_system_prompt(session_key: str = "", mode: str = "full", output_file: str = None):
+    """
+    打印或保存系统提示词到文件
+
+    Args:
+        session_key: 会话 key
+        mode: 加载模式（full/minimal/none）
+        output_file: 输出文件路径，如果为 None 则打印到控制台
+    """
+    prompt = build_system_prompt(session_key, mode)
+
+    if output_file:
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(prompt)
+        print(f"✅ 系统提示词已保存到: {output_file}")
+        print(f"📊 总字符数: {len(prompt)}")
+        print(f"📊 总行数: {len(prompt.splitlines())}")
+    else:
+        print("=" * 80)
+        print("系统提示词 (System Prompt)")
+        print("=" * 80)
+        print(prompt)
+        print("=" * 80)
+        print(f"📊 总字符数: {len(prompt)}")
+        print(f"📊 总行数: {len(prompt.splitlines())}")
+
+
+if __name__ == "__main__":
+    import sys
+
+    # 支持命令行调用
+    # python backend/app/prompts.py [session_key] [mode] [output_file]
+    session_key = sys.argv[1] if len(sys.argv) > 1 else ""
+    mode = sys.argv[2] if len(sys.argv) > 2 else "full"
+    output_file = sys.argv[3] if len(sys.argv) > 3 else None
+
+    print_system_prompt(session_key, mode, output_file)

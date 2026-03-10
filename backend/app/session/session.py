@@ -97,7 +97,7 @@ class SessionStore:
             self.create_session(key)
         self._current_key = key
 
-        # 初始化 Bootstrap 加载器（使用全局 .bootstrap 目录）
+        # 初始化全局记忆加载器（使用全局 .memory 目录）
         self._bootstrap_loader = GlobalMemoryLoader()
 
         # 初始化记忆存储（使用 session workspace）

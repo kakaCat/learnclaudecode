@@ -6,7 +6,7 @@ from backend.app.tools.base import WORKDIR, SKIP_DIRS, _safe_path
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool(tags=["both"])
 def glob(pattern: str, dir: str = None) -> str:
     """Find files matching a glob pattern. Examples: '**/*.py', 'src/**/*.ts', '*.md'
     Automatically skips .git, __pycache__, node_modules, .venv."""
@@ -23,7 +23,7 @@ def glob(pattern: str, dir: str = None) -> str:
         return f"Error: {e}"
 
 
-@tool
+@tool(tags=["both"])
 def grep(pattern: str, dir: str = None, file_glob: str = "*", ignore_case: bool = False) -> str:
     """Search for a regex pattern in files. Returns file:line:content matches.
     ignore_case=True for case-insensitive search.
@@ -55,7 +55,7 @@ def grep(pattern: str, dir: str = None, file_glob: str = "*", ignore_case: bool 
         return f"Error: {e}"
 
 
-@tool
+@tool(tags=["both"])
 def list_dir(path: str = ".") -> str:
     """List directory contents with file sizes and types."""
     logger.info("list_dir: %s", path)

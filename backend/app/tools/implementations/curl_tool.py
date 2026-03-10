@@ -5,7 +5,7 @@ from langchain_core.tools import tool
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool(tags=["both"])
 def curl(url: str, method: str = "GET", headers: str = "", data: str = "") -> str:
     """Execute a curl command to make HTTP requests.
 

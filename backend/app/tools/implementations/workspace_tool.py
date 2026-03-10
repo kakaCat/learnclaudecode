@@ -10,7 +10,7 @@ def _resolve(path: str):
     return fp
 
 
-@tool
+@tool(tags=["both"])
 def workspace_write(path: str, content: str) -> str:
     """Write a file to the session workspace (for AI intermediate outputs). Path is relative to workspace/."""
     try:
@@ -22,7 +22,8 @@ def workspace_write(path: str, content: str) -> str:
         return f"Error: {e}"
 
 
-@tool
+
+@tool(tags=["both"])
 def workspace_read(path: str) -> str:
     """Read a file from the session workspace."""
     try:
@@ -31,7 +32,8 @@ def workspace_read(path: str) -> str:
         return f"Error: {e}"
 
 
-@tool
+
+@tool(tags=["both"])
 def workspace_list() -> str:
     """List all files in the session workspace."""
     try:
@@ -42,3 +44,4 @@ def workspace_list() -> str:
         return "\n".join(str(f.relative_to(ws)) for f in files if f.is_file())
     except Exception as e:
         return f"Error: {e}"
+

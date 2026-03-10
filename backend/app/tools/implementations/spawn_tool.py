@@ -18,12 +18,12 @@ def make_task_tool():
         "Use for subtasks needing focused exploration or implementation without polluting main context."
     )
 
-    @tool(description=desc)
+    @tool(description=desc, tags=["main"])
     def Task(description: str, prompt: str, subagent_type: str, recursion_limit: int = 100) -> str:
         logger.info("Task: [%s] %s", subagent_type, description)
         if subagent_type not in AGENT_TYPES:
             return f"Error: Unknown agent type '{subagent_type}'. Choose from: {list(AGENT_TYPES.keys())}"
-        base_tools = [t for t in tool_manager.get_tools() if t.name != "Task"]
+        base_tools = tool_manager.get_subagent_tools()
         return run_subagent(description, prompt, subagent_type, base_tools, recursion_limit)
 
     return Task

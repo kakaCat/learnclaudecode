@@ -71,7 +71,7 @@ class AgentContext(BaseAgentContext):
         self._llm = get_llm()
 
         # 3. Initialize tools
-        self._tools = tool_manager.get_tools()
+        self._tools = tool_manager.get_main_tools()
 
         # 4. Initialize system prompt
         self._system_prompt = get_system_prompt(self._session_key)

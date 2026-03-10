@@ -3,7 +3,7 @@ import logging
 import json
 from typing import Literal, Optional
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
@@ -220,14 +220,15 @@ def _get_screenshot_path(output_path: str) -> str:
     return output_path
 
 
-@tool
+@tool(tags=["subagent"])
 def cdp_browser(
-    action: Literal["navigate", "screenshot", "execute", "content", "click", "check_health", "wait_for"],
+    action: Literal["navigate", "screenshot", "execute", "eval", "content", "click", "check_health", "wait_for", "inspect"],
     url: str = "",
     script: str = "",
     selector: str = "",
     output_path: str = "screenshot.png",
-    wait_time: int = 3
+    wait_time: int = 3,
+    keyword: str = ""
 ) -> str:
     """Control browser via Chrome DevTools Protocol.
 
@@ -235,19 +236,32 @@ def cdp_browser(
         action: Action to perform
             - navigate: Navigate to URL (auto-waits for load)
             - screenshot: Take screenshot
-            - execute: Execute JavaScript
+            - execute: Execute JavaScript statements (auto-wrapped in IIFE)
+            - eval: Evaluate JavaScript expression (returns value directly)
             - content: Get page text content
             - click: Click element by CSS selector
             - check_health: Check if CDP service is available
             - wait_for: Wait for element to appear (requires selector)
+            - inspect: Inspect page structure (find classes by keyword)
         url: URL to navigate to (for navigate action)
-        script: JavaScript to execute (for execute action)
+        script: JavaScript to execute (for execute/eval action)
         selector: CSS selector (for click/wait_for action)
         output_path: Path to save screenshot (for screenshot action)
         wait_time: Seconds to wait after action (default: 3)
+        keyword: Keyword to search in class names (for inspect action)
 
     Returns:
         Result of the action or error message
+
+    Common Issues and Solutions:
+        1. JavaScript syntax errors:
+           - Use 'eval' for expressions (no return needed)
+           - Use 'execute' for statements (auto-wrapped, can use return)
+        2. Element not found:
+           - Use 'inspect' first to find correct selectors
+           - Use 'wait_for' before 'click'
+        3. Form interaction fails:
+           - Prefer URL construction over form filling
     """
     logger.info(f"cdp_browser: {action}")
 
@@ -320,9 +334,45 @@ def cdp_browser(
         elif action == "execute":
             if not script:
                 return "Error: script required for execute"
-            result = tab.Runtime.evaluate(expression=script)
+
+            # 包装为 IIFE（立即执行函数表达式），避免全局作用域问题
+            # 这样可以使用 return 语句，并避免变量重复声明
+            wrapped_script = f"""
+(function() {{
+    try {{
+        {script}
+    }} catch(e) {{
+        return {{error: e.message, stack: e.stack}};
+    }}
+}})()
+"""
+            result = tab.Runtime.evaluate(expression=wrapped_script)
             tab.wait(wait_time)
-            return json.dumps(result.get("result", {}), ensure_ascii=False)
+
+            # 检查执行结果
+            result_obj = result.get("result", {})
+            if result_obj.get("type") == "object":
+                # 尝试获取错误信息
+                value = result_obj.get("value", {})
+                if isinstance(value, dict) and "error" in value:
+                    return f"❌ Script error: {value['error']}"
+
+            return json.dumps(result_obj, ensure_ascii=False)
+
+        elif action == "eval":
+            # 新增：表达式求值（不需要 return，直接返回表达式结果）
+            if not script:
+                return "Error: script required for eval"
+            result = tab.Runtime.evaluate(expression=script, returnByValue=True)
+            result_obj = result.get("result", {})
+
+            # 检查是否有异常
+            if result.get("exceptionDetails"):
+                exception = result["exceptionDetails"]
+                error_msg = exception.get("exception", {}).get("description", "Unknown error")
+                return f"❌ Eval error: {error_msg}"
+
+            return json.dumps(result_obj, ensure_ascii=False)
 
         elif action == "content":
             result = tab.Runtime.evaluate(expression="document.body.innerText")
@@ -340,6 +390,64 @@ def cdp_browser(
             tab.wait(wait_time)
             return f"✅ Clicked {selector}"
 
+        elif action == "inspect":
+            # 探测页面结构：查找包含关键词的类名和ID
+            if not keyword:
+                return "Error: keyword required for inspect"
+
+            # 使用普通字符串避免 f-string 转义问题
+            inspect_script = """
+(function() {
+    const keyword = '""" + keyword + """'.toLowerCase();
+    const results = {
+        classes: [],
+        ids: [],
+        sample_html: ''
+    };
+
+    // 收集所有包含关键词的类名
+    const classSet = new Set();
+    document.querySelectorAll('*').forEach(el => {
+        if (el.className && typeof el.className === 'string') {
+            el.className.split(/\\s+/).forEach(cls => {
+                if (cls && cls.toLowerCase().includes(keyword)) {
+                    classSet.add(cls);
+                }
+            });
+        }
+    });
+    results.classes = Array.from(classSet).slice(0, 20);
+
+    // 收集所有包含关键词的ID
+    const idSet = new Set();
+    document.querySelectorAll('[id]').forEach(el => {
+        if (el.id.toLowerCase().includes(keyword)) {
+            idSet.add(el.id);
+        }
+    });
+    results.ids = Array.from(idSet).slice(0, 10);
+
+    // 获取第一个匹配元素的HTML示例
+    if (results.classes.length > 0) {
+        const firstClass = results.classes[0];
+        const el = document.querySelector('.' + firstClass);
+        if (el) {
+            results.sample_html = el.outerHTML.substring(0, 500);
+        }
+    }
+
+    return results;
+})()
+"""
+            result = tab.Runtime.evaluate(expression=inspect_script, returnByValue=True)
+            result_obj = result.get("result", {})
+
+            if result_obj.get("type") == "object":
+                value = result_obj.get("value", {})
+                return json.dumps(value, ensure_ascii=False, indent=2)
+            else:
+                return f"❌ Inspect failed: {result_obj}"
+
         return "Error: Unknown action"
 
     except RuntimeError as e:
@@ -350,8 +458,58 @@ def cdp_browser(
         return f"Error: {str(e)}"
 
 
+
 def reset_cdp_cache():
     """重置 CDP 可用性缓存（用于测试或重启后）"""
     global _browser_available, _browser
     _browser_available = None
     _browser = None
+
+
+def parse_relative_date(date_str: str) -> str:
+    """
+    解析相对日期表达式
+
+    Args:
+        date_str: "明天"、"后天"、"今天"、"2026-03-11" 等
+
+    Returns:
+        YYYY-MM-DD 格式的日期字符串
+
+    Examples:
+        >>> parse_relative_date("明天")
+        "2026-03-11"  # 假设今天是 2026-03-10
+        >>> parse_relative_date("2026-03-15")
+        "2026-03-15"
+    """
+    today = datetime.now()
+
+    # 相对日期映射
+    relative_dates = {
+        "今天": 0,
+        "today": 0,
+        "明天": 1,
+        "tomorrow": 1,
+        "后天": 2,
+        "day after tomorrow": 2,
+        "大后天": 3,
+    }
+
+    if date_str in relative_dates:
+        target = today + timedelta(days=relative_dates[date_str])
+        return target.strftime("%Y-%m-%d")
+
+    # 尝试解析为日期格式
+    try:
+        # 支持多种格式
+        for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"]:
+            try:
+                target = datetime.strptime(date_str, fmt)
+                return target.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+    except Exception:
+        pass
+
+    # 无法解析，返回原值
+    return date_str

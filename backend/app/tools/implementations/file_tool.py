@@ -6,7 +6,7 @@ from backend.app.tools.base import WORKDIR, _safe_path
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool(tags=["both"])
 def bash(command: str) -> str:
     """Run a shell command. Use for: git, npm, python, running tests. NOT for file exploration (use glob/grep/list_dir instead)."""
     dangerous = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"]
@@ -24,7 +24,7 @@ def bash(command: str) -> str:
     return output[:50000]
 
 
-@tool
+@tool(tags=["both"])
 def read_file(path: str, offset: int = 1, limit: int = None) -> str:
     """Read file contents with line numbers. offset=start line (1-based), limit=max lines to read.
     Example: offset=50, limit=100 reads lines 50-149. Use for navigating large files."""
@@ -45,7 +45,7 @@ def read_file(path: str, offset: int = 1, limit: int = None) -> str:
         return f"Error: {e}"
 
 
-@tool
+@tool(tags=["both"])
 def write_file(path: str, content: str) -> str:
     """Write content to a file. Creates parent directories if needed. Use for new files or complete rewrites."""
     logger.info("write_file: %s (%d bytes)", path, len(content))
@@ -58,7 +58,7 @@ def write_file(path: str, content: str) -> str:
         return f"Error: {e}"
 
 
-@tool
+@tool(tags=["both"])
 def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
     """Replace exact text in a file. old_text must match verbatim.
     replace_all=False (default): replaces first occurrence only.

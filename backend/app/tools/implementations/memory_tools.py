@@ -7,7 +7,7 @@ from langchain_core.tools import tool
 from backend.app.session import get_store
 
 
-@tool
+@tool(tags=["both"])
 def memory_write(content: str, category: str = "general") -> str:
     """
     Save an important fact or observation to long-term memory.
@@ -24,7 +24,8 @@ def memory_write(content: str, category: str = "general") -> str:
     return store.write_memory(content, category)
 
 
-@tool
+
+@tool(tags=["both"])
 def memory_search(query: str, top_k: int = 5) -> str:
     """
     Search stored memories for relevant information, ranked by similarity.
@@ -48,3 +49,4 @@ def memory_search(query: str, top_k: int = 5) -> str:
         lines.append(f"[{r['path']}] (score: {r['score']}) {r['snippet']}")
 
     return "\n".join(lines)
+

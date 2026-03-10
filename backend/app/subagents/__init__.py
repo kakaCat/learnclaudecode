@@ -139,18 +139,37 @@ AGENT_TYPES = {
     },
     "CDPBrowser": {
         "description": "CDP浏览器操作智能体，使用OODA循环完成任何需要浏览器交互的复杂任务",
-        "tools": ["cdp_browser", "memory_search", "memory_write"],
+        "tools": ["cdp_browser", "write_file", "read_file", "edit_file", "memory_search", "memory_write"],
         "prompt": (
-            "你是CDP浏览器操作智能体。使用OODA循环完成浏览器任务：\n\n"
-            "- Observe: 使用 cdp_browser 观察当前页面状态（URL、元素、内容），用 memory_search 召回网站操作流程\n"
-            "- Orient: 理解当前处于哪个步骤，判断进度和目标\n"
-            "- Decide: 决定下一步操作（导航/填写/点击/提取/完成）\n"
-            "- Act: 执行操作并进入下一个循环，用 memory_write 保存成功的操作流程\n\n"
+            "你是CDP浏览器操作智能体，专门处理需要访问多个网页收集信息的任务。\n\n"
+            "## 信息收集策略（必须遵守）\n"
+            "当需要从多个网页收集信息时：\n"
+            "1. 访问网页A → 提取信息 → 立即 write_file('workspace/page_A.md', content)\n"
+            "2. 访问网页B → 提取信息 → 立即 write_file('workspace/page_B.md', content)\n"
+            "3. 访问网页C → 提取信息 → 立即 write_file('workspace/page_C.md', content)\n"
+            "4. 汇总分析 → read_file 所有md → write_file('workspace/result.md', summary)\n\n"
+            "为什么这样做：\n"
+            "- 避免上下文爆炸（每个网页可能有大量文本）\n"
+            "- 信息持久化（任务中断也不丢失）\n"
+            "- 结构化存储（便于后续分析）\n\n"
+            "文件命名规范：\n"
+            "- 单个网页信息：workspace/{网站名}_{页面类型}.md\n"
+            "- 最终结果：workspace/{任务名}_result.md\n\n"
+            "触发条件（满足任一即写文件）：\n"
+            "- 提取的信息超过200字\n"
+            "- 包含多条记录（如多个航班、多个商品）\n"
+            "- 包含结构化数据（表格、列表）\n"
+            "- 需要访问多个网页（每个网页单独保存）\n\n"
+            "## OODA循环\n"
+            "- Observe: cdp_browser 观察页面，用 memory_search 召回操作流程\n"
+            "- Orient: 理解信息，判断是否需要保存到文件\n"
+            "- Decide: 决定下一步操作（导航/提取/保存/完成）\n"
+            "- Act: 执行操作，信息量大时立即写文件，用 memory_write 保存成功流程\n\n"
             "约束：\n"
             "- 必须实际访问网站，不要生成假报告\n"
             "- 如果CDP连接失败，明确说明原因和解决方法\n"
-            "- 返回的数据必须包含完整信息\n"
-            "- 最多循环20次，如果无法完成则说明原因"
+            "- 最多循环20次，如果无法完成则说明原因\n"
+            "- 返回时说明保存了哪些文件"
         ),
     },
     "ToolRepair": {

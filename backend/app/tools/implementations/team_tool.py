@@ -13,40 +13,45 @@ from backend.app.team import get_bus, get_team
 logger = logging.getLogger(__name__)
 
 
-@tool
+@tool(tags=["main"])
 def spawn_teammate(name: str, role: str, prompt: str) -> str:
     """Spawn a persistent teammate agent in its own thread. The teammate can use tools and communicate via inboxes."""
     logger.info("spawn_teammate: name=%s role=%s", name, role)
     return get_team().spawn(name, role, prompt)
 
 
-@tool
+
+@tool(tags=["main"])
 def list_teammates() -> str:
     """List all teammates with their name, role, and current status."""
     return get_team().list_all()
 
 
-@tool
+
+@tool(tags=["main"])
 def send_message(to: str, content: str, msg_type: str = "message") -> str:
     """Send a message to a teammate's inbox. msg_type: message, broadcast, shutdown_request, shutdown_response, plan_approval_response."""
     logger.info("send_message: to=%s type=%s", to, msg_type)
     return get_bus().send("lead", to, content, msg_type)
 
 
-@tool
+
+@tool(tags=["main"])
 def read_inbox() -> str:
     """Read and drain the lead's inbox. Returns all pending messages as JSON."""
     return json.dumps(get_bus().read_inbox("lead"), indent=2)
 
 
-@tool
+
+@tool(tags=["main"])
 def broadcast(content: str) -> str:
     """Send a message to all teammates."""
     logger.info("broadcast: %s", content[:80])
     return get_bus().broadcast("lead", content, get_team().member_names())
 
 
-@tool
+
+@tool(tags=["main"])
 def shutdown_request(teammate: str) -> str:
     """Request a teammate to shut down gracefully. Returns a request_id for tracking."""
     from backend.app.team.state import shutdown_requests, tracker_lock
@@ -58,7 +63,8 @@ def shutdown_request(teammate: str) -> str:
     return f"Shutdown request {req_id} sent to '{teammate}' (status: pending)"
 
 
-@tool
+
+@tool(tags=["main"])
 def check_shutdown_status(request_id: str) -> str:
     """Check the status of a shutdown request by request_id."""
     from backend.app.team.state import shutdown_requests, tracker_lock
@@ -66,7 +72,8 @@ def check_shutdown_status(request_id: str) -> str:
         return json.dumps(shutdown_requests.get(request_id, {"error": "not found"}))
 
 
-@tool
+
+@tool(tags=["main"])
 def plan_approval(request_id: str, approve: bool, feedback: str = "") -> str:
     """Approve or reject a teammate's submitted plan. Provide request_id and approve=True/False."""
     from backend.app.team.state import plan_requests, tracker_lock
@@ -81,17 +88,20 @@ def plan_approval(request_id: str, approve: bool, feedback: str = "") -> str:
     return f"Plan {req['status']} for '{req['from']}'"
 
 
-@tool
+
+@tool(tags=["main"])
 def idle() -> str:
     """Enter idle state (for lead -- rarely used)."""
     return "Lead does not idle."
 
 
-@tool
+
+@tool(tags=["main"])
 def claim_task(task_id: int) -> str:
     """Claim a task from the shared board by ID."""
     from backend.app.team.state import claim_task as _claim
     return _claim(task_id, "lead")
+
 
 
 def drain_lead_inbox() -> list:

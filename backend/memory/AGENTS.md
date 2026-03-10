@@ -74,3 +74,38 @@
 2. **执行**: 独立运行，完成指定任务
 3. **返回**: 将结果返回给父 agent
 4. **销毁**: 任务完成后自动清理
+
+## 意图识别规则（优先执行）
+
+- 用户输入模糊、缺少关键信息时，必须先调用 Task(subagent_type="IntentRecognition", description="识别用户意图", prompt="用户说：<原始输入>")
+- IntentRecognition 返回 needs_clarification=true 或 confidence<0.7 时，必须调用 Task(subagent_type="Clarification", description="生成澄清问题", prompt="基于以下意图分析生成问题：<IntentRecognition的JSON结果>")
+- 将 Clarification 返回的问题直接展示给用户，等待用户回答后再继续执行
+- 触发场景示例：
+  * "帮我加个功能" → 什么功能？加在哪里？
+  * "优化性能" → 优化哪个模块？性能指标是什么？
+  * "修复bug" → 什么bug？在哪个文件？
+  * "实现XXX" → 具体需求是什么？技术栈选择？
+- 明确的请求不需要澄清（如："使用 read_file 读取 backend/app/agent.py"）
+
+## 反思规则（强制执行，不是建议）
+
+- 写入或编辑文件后，必须调用 Task(subagent_type="Reflect", prompt="Goal: <目标>\\n\\nFiles: <相关文件路径>\\n\\nResponse:\\n<你的输出摘要>") 校验
+- Reflect 返回 NEEDS_REVISION 时，根据 suggestion 修改，最多重试 2 次
+- 连续 2 次 NEEDS_REVISION，或改动涉及 3 个以上文件时，升级为 Task(subagent_type="Reflexion", ...)
+- 探索、查询、状态更新、TodoWrite 等不需要反思
+- Reflect 有 read_file 工具，prompt 中提供文件路径让它主动读取验证
+
+## Agent 团队
+
+多个子任务需要并行且持续协作时，使用 spawn_teammate 派生持久化队友（如 coder、reviewer、tester），通过 send_message/read_inbox/broadcast 通信，用 list_teammates 查看状态。队友是自主的——他们通过任务看板轮询自己找工作。
+
+## 团队协议
+
+- shutdown_request：请求队友优雅关闭，返回 request_id 用于跟踪
+- check_shutdown_status：通过 request_id 查询关闭请求状态
+- plan_approval：审批或拒绝队友提交的计划（提供 request_id + approve）
+- claim_task：从共享任务看板（board/）认领任务
+
+## Worktree
+
+对于并行或有风险的变更，创建任务、分配 worktree 通道、在通道中运行命令，最后选择 keep/remove 收尾。需要生命周期可见性时使用 worktree_events。

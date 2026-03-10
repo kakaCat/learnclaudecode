@@ -25,31 +25,43 @@ class ToolsManager:
 
     def auto_discover(self, tools_dir: Path, skip: set = None) -> "ToolsManager":
         from langchain_core.tools import BaseTool
-        skip = (skip or set()) | {"spawn_tool", "__init__", "mcp_tool"}
+        skip = (skip or set()) | {"spawn_tool", "__init__", "mcp_tool", "cdp_tool"}
         package = "backend.app.tools"
 
+        print("=" * 80)
+        print("🔧 ToolsManager.auto_discover()")
+        print("=" * 80)
+
         # Scan main tools directory
+        print(f"📂 Scanning: {tools_dir}")
         for info in pkgutil.iter_modules([str(tools_dir)]):
             if info.name in skip:
+                print(f"⏭️  Skip: {info.name}")
                 continue
             module = importlib.import_module(f"{package}.{info.name}")
             for attr in dir(module):
                 obj = getattr(module, attr)
                 if isinstance(obj, BaseTool):
                     self._tools[obj.name] = obj
+                    print(f"✅ Loaded: {obj.name} (from {info.name})")
 
         # Scan implementations subdirectory
         impl_dir = tools_dir / "implementations"
         if impl_dir.exists():
+            print(f"📂 Scanning: {impl_dir}")
             for info in pkgutil.iter_modules([str(impl_dir)]):
                 if info.name in skip:
+                    print(f"⏭️  Skip: {info.name}")
                     continue
                 module = importlib.import_module(f"{package}.implementations.{info.name}")
                 for attr in dir(module):
                     obj = getattr(module, attr)
                     if isinstance(obj, BaseTool):
                         self._tools[obj.name] = obj
+                        print(f"✅ Loaded: {obj.name} (from implementations/{info.name})")
 
+        print(f"📊 Total tools loaded: {len(self._tools)}")
+        print("=" * 80)
         return self
 
     def build_task_tool(self) -> "ToolsManager":
@@ -84,9 +96,51 @@ class ToolsManager:
             self.auto_discover(tools_dir).build_task_tool()
             self._initialized = True
 
-    def get_tools(self) -> list:
+    def get_tools(self, scope: str = "all") -> list:
+        """
+        获取工具列表
+
+        Args:
+            scope: "main" | "subagent" | "all"
+                - "main": 返回 main agent 可用的工具（包括 both 和 main）
+                - "subagent": 返回 subagent 可用的工具（包括 both，排除 main-only）
+                - "all": 返回所有工具
+
+        Returns:
+            工具列表
+        """
         self._ensure_initialized()
-        return list(self._tools.values())
+
+        if scope == "all":
+            return list(self._tools.values())
+
+        filtered = []
+        for tool in self._tools.values():
+            # 从 tags 中提取 scope
+            tags = getattr(tool, "tags", [])
+            if "main" in tags:
+                tool_scope = "main"
+            elif "subagent" in tags:
+                tool_scope = "subagent"
+            else:
+                tool_scope = "both"
+
+            if tool_scope == "both":
+                filtered.append(tool)
+            elif scope == "main" and tool_scope == "main":
+                filtered.append(tool)
+            elif scope == "subagent" and tool_scope == "subagent":
+                filtered.append(tool)
+
+        return filtered
+
+    def get_main_tools(self) -> list:
+        """获取 main agent 工具（包括 both 和 main-only）"""
+        return self.get_tools(scope="main")
+
+    def get_subagent_tools(self) -> list:
+        """获取 subagent 工具（包括 both，排除 main-only）"""
+        return self.get_tools(scope="subagent")
 
     def get(self, name: str):
         self._ensure_initialized()
