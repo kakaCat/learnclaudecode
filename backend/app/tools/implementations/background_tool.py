@@ -1,4 +1,4 @@
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 
 from backend.app.background import run, check, run_agent
 
@@ -11,7 +11,7 @@ def background_run(command: str) -> str:
     return f"Background task {task_id} started: {command[:80]}"
 
 
-@tool(tags=["main"])
+@tool(tags=["both"])
 def background_agent(description: str, prompt: str, subagent_type: str) -> str:
     """Run a subagent task in a background thread. Returns task_id immediately without blocking.
     Use for long-running agent tasks (exploration, implementation). Check results with check_background.

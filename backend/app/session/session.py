@@ -505,18 +505,61 @@ class SessionStore:
 
     def write_memory(self, content: str, category: str = "general") -> str:
         """
-        写入记忆
+        写入记忆（自动分层）
 
         Args:
             content: 记忆内容
             category: 分类
+                - session/general: 会话临时信息（默认）
+                - preference: 用户偏好（全局持久化）
+                - architecture: 项目架构知识（全局持久化）
+                - tool: 工具使用经验（全局持久化）
 
         Returns:
             操作结果消息
         """
-        if not self._memory_store:
-            return "Error: No active session"
-        return self._memory_store.write_memory(content, category)
+        # 全局记忆：写入到 backend/memory/
+        if category == "preference":
+            return self._append_to_global_file("USER.md", content)
+        elif category == "architecture":
+            return self._append_to_global_file("MEMORY.md", content)
+        elif category == "tool":
+            return self._append_to_global_file("TOOLS.md", content)
+
+        # 会话记忆：写入到 workspace/memory/daily/{date}.jsonl
+        else:
+            if not self._memory_store:
+                return "Error: No active session"
+            return self._memory_store.write_memory(content, category)
+
+    def _append_to_global_file(self, filename: str, content: str) -> str:
+        """
+        追加内容到全局记忆文件
+
+        Args:
+            filename: 文件名（USER.md, MEMORY.md, TOOLS.md）
+            content: 要追加的内容
+
+        Returns:
+            操作结果消息
+        """
+        if not self._bootstrap_loader:
+            return "Error: Global memory not initialized"
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        formatted = f"\n\n## {timestamp}\n\n{content}"
+
+        # 读取当前内容
+        current = self._bootstrap_loader.load_file(filename)
+        updated = f"{current}{formatted}".strip()
+
+        # 写入更新后的内容
+        success = self._bootstrap_loader.update_file(filename, updated)
+
+        if success:
+            return f"✓ Saved to global {filename}"
+        else:
+            return f"✗ Error writing to global {filename}"
 
     def search_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """

@@ -1,4 +1,4 @@
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 from backend.app.session import get_workspace_dir
 
 

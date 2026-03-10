@@ -1,24 +1,21 @@
 """
-Subagent module - independent from tools.
+Subagent module - 提供 Subagent 类型注册和辅助函数
 
 Architecture:
-    Main Agent (create_agent + ALL_TOOLS including Task)
-        └── Task tool calls run_subagent()
-              └── Subagent (create_agent + filtered tools, NO Task)
+    Main Agent (MainContext + AgentService)
+        └── Task tool
+              └── SubagentContext (独立创建)
+                    └── run_subagent_with_context (执行逻辑)
 
 Registry defines agent types and their allowed tools.
-Subagents use LangChain create_agent, same as main agent.
 """
 import logging
 import time
 
-from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
+from backend.app.context.tracer import Tracer
 
-from backend.app.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from backend.app.session import get_session_key, save_session
-from backend.app.context import tracer
+tracer = Tracer()
 
 logger = logging.getLogger(__name__)
 
@@ -30,22 +27,40 @@ AGENT_TYPES = {
     "Explore": {
         "description": "Read-only agent for exploring code, finding files, searching",
         "tools": ["bash", "read_file", "glob", "grep", "list_dir", "memory_search", "memory_write"],
-        "prompt": "You are an exploration agent. Search and analyze, but never modify files. Use memory_search to recall past findings. Return a concise summary.",
+        "prompt": (
+            "You are an exploration agent. Search and analyze, but never modify files.\n\n"
+            "Memory usage:\n"
+            "- memory_search(query) - Recall past findings before starting\n"
+            "- memory_write(content, category) - Save discoveries:\n"
+            "  * category='session' - Temporary findings (file paths, search results)\n"
+            "  * category='architecture' - Project patterns/structure (persistent)\n"
+            "  * category='tool' - Useful search/exploration techniques (persistent)\n\n"
+            "Always save at least one architectural discovery before finishing. Return a concise summary."
+        ),
     },
     "general-purpose": {
         "description": "Full agent for implementing features and fixing bugs",
         "tools": "*",  # all BASE_TOOLS, Task excluded automatically
-        "prompt": "You are a coding agent. Implement the requested changes efficiently.",
+        "prompt": "You are a coding agent. Implement the requested changes efficiently. Use memory_write(content, 'architecture') to save important patterns you discover.",
     },
     "Plan": {
-        "description": "Planning agent for designing implementation strategies and creating tasks",
+        "description": "规划复杂任务，拆分步骤并创建持久化任务",
         "tools": ["bash", "read_file", "glob", "grep", "list_dir", "task_create", "task_list", "memory_search", "memory_write"],
-        "prompt": "You are a planning agent. Use memory_search to recall past decisions and patterns. Analyze the codebase, create a numbered implementation plan, and use task_create to create persistent tasks for each step. Save important decisions with memory_write. Do NOT make code changes.",
+        "prompt": (
+            "You are a planning agent. Use memory_search to recall past decisions and patterns. "
+            "Analyze the codebase, create a numbered implementation plan, and use task_create to create persistent tasks for each step. "
+            "IMPORTANT: You can ONLY use memory_write(content, 'session') for temporary findings. "
+            "Do NOT write to global memory (architecture/preference/tool categories). Do NOT make code changes."
+        ),
     },
-    "ScriptWriter": {
-        "description": "Script writing agent that creates Python scripts and saves them to the scripts/ folder",
-        "tools": ["read_file", "write_file", "glob", "grep", "list_dir", "memory_search", "memory_write"],
-        "prompt": "You are a script writing agent. Use memory_search to recall script patterns and best practices. Write Python scripts and save them to the scripts/ directory using write_file. Always use paths like 'scripts/<name>.py'. Save useful patterns with memory_write. Return the file path when done.",
+    "Coding": {
+        "description": "生成任何语言的代码并保存到工作空间",
+        "tools": ["workspace_write", "workspace_read", "memory_search", "memory_write"],
+        "prompt": (
+            "You are a coding agent. Generate code in any programming language based on user requirements. "
+            "Use memory_search to recall coding patterns. Save all generated code to workspace using workspace_write. "
+            "Return the file path when done. Use memory_write(pattern, 'architecture') to save useful patterns."
+        ),
     },
     "Reflect": {
         "description": "Reflection agent: reads relevant files to verify correctness, returns verdict PASS|NEEDS_REVISION with missing/superfluous/suggestion",
@@ -57,7 +72,7 @@ AGENT_TYPES = {
             "  missing: list of missing aspects\n"
             "  superfluous: list of unnecessary/redundant parts\n"
             "  suggestion: concise actionable improvement advice (empty string if PASS)\n"
-            "Use memory_write to save recurring issues. No explanation outside the JSON."
+            "Use memory_write(issue, 'architecture') to save recurring issues. No explanation outside the JSON."
         ),
     },
     "Reflexion": {
@@ -67,7 +82,8 @@ AGENT_TYPES = {
             "You are a Reflexion agent with two phases.\n"
             "Phase 1 - Responder: use memory_search to recall improvement patterns, critically analyze the initial response against the goal. "
             "Identify what is MISSING and what is SUPERFLUOUS.\n"
-            "Phase 2 - Revisor: produce an improved response that addresses all critique points. Use memory_write to save effective patterns.\n"
+            "Phase 2 - Revisor: produce an improved response that addresses all critique points. "
+            "Use memory_write(pattern, 'architecture') to save effective patterns.\n"
             "Return ONLY valid JSON: {\"critique\": \"...\", \"revised\": \"...\"}"
         ),
     },
@@ -81,7 +97,7 @@ AGENT_TYPES = {
             "- Highlight results from user's preferred sources if found in memory\n"
             "- Do NOT summarize or interpret, just return raw results\n"
             "- If fetch fails, report the error clearly\n"
-            "- Use memory_write to save effective search patterns"
+            "- Use memory_write(source, 'preference') to save user's preferred information sources"
         ),
     },
     "OODASubagent": {
@@ -92,7 +108,7 @@ AGENT_TYPES = {
             "- Observe: collect raw information using tools, use memory_search to recall past solutions\n"
             "- Orient: analyze what you found, identify gaps\n"
             "- Decide: choose next action (observe more / act / done)\n"
-            "- Act: execute the decision, use memory_write to save important findings\n"
+            "- Act: execute the decision, use memory_write(finding, 'architecture') to save important findings\n"
             "Keep cycling until the goal is fully achieved."
         ),
     },
@@ -106,7 +122,7 @@ AGENT_TYPES = {
             "3. 所需信息（完成意图需要哪些信息？）\n"
             "4. 模糊点（哪些地方不清楚或可能有多种理解？）\n"
             "5. 置信度（对意图判断的确定程度？）\n\n"
-            "用 memory_write 记录识别出的意图模式。\n\n"
+            "用 memory_write(pattern, 'preference') 记录识别出的用户意图模式。\n\n"
             "只返回有效的 JSON，包含以下键：\n"
             "  primary_intent: string（主要意图）\n"
             "  secondary_intents: list of strings（次要意图列表）\n"
@@ -139,36 +155,17 @@ AGENT_TYPES = {
     },
     "CDPBrowser": {
         "description": "CDP浏览器操作智能体，使用OODA循环完成任何需要浏览器交互的复杂任务",
-        "tools": ["cdp_browser", "write_file", "read_file", "edit_file", "memory_search", "memory_write"],
+        "tools": ["cdp_browser", "workspace_write", "workspace_read", "memory_search", "memory_write"],
         "prompt": (
-            "你是CDP浏览器操作智能体，专门处理需要访问多个网页收集信息的任务。\n\n"
-            "## 信息收集策略（必须遵守）\n"
-            "当需要从多个网页收集信息时：\n"
-            "1. 访问网页A → 提取信息 → 立即 write_file('workspace/page_A.md', content)\n"
-            "2. 访问网页B → 提取信息 → 立即 write_file('workspace/page_B.md', content)\n"
-            "3. 访问网页C → 提取信息 → 立即 write_file('workspace/page_C.md', content)\n"
-            "4. 汇总分析 → read_file 所有md → write_file('workspace/result.md', summary)\n\n"
-            "为什么这样做：\n"
-            "- 避免上下文爆炸（每个网页可能有大量文本）\n"
-            "- 信息持久化（任务中断也不丢失）\n"
-            "- 结构化存储（便于后续分析）\n\n"
-            "文件命名规范：\n"
-            "- 单个网页信息：workspace/{网站名}_{页面类型}.md\n"
-            "- 最终结果：workspace/{任务名}_result.md\n\n"
-            "触发条件（满足任一即写文件）：\n"
-            "- 提取的信息超过200字\n"
-            "- 包含多条记录（如多个航班、多个商品）\n"
-            "- 包含结构化数据（表格、列表）\n"
-            "- 需要访问多个网页（每个网页单独保存）\n\n"
-            "## OODA循环\n"
-            "- Observe: cdp_browser 观察页面，用 memory_search 召回操作流程\n"
-            "- Orient: 理解信息，判断是否需要保存到文件\n"
-            "- Decide: 决定下一步操作（导航/提取/保存/完成）\n"
-            "- Act: 执行操作，信息量大时立即写文件，用 memory_write 保存成功流程\n\n"
-            "约束：\n"
-            "- 必须实际访问网站，不要生成假报告\n"
-            "- 如果CDP连接失败，明确说明原因和解决方法\n"
-            "- 最多循环20次，如果无法完成则说明原因\n"
+            "你是CDP浏览器操作智能体，专门处理需要访问网页收集信息的任务。\n\n"
+            "工作流程：\n"
+            "1. 先检查 CDP 服务是否可用（cdp_browser action='check_health'）\n"
+            "2. 访问网页提取信息（navigate → content）\n"
+            "3. 信息量大时保存到文件（workspace_write）\n"
+            "4. 多个网页时分别保存，最后汇总\n\n"
+            "注意：\n"
+            "- 必须实际访问网站，不要生成假数据\n"
+            "- CDP 不可用时说明原因和启动方法\n"
             "- 返回时说明保存了哪些文件"
         ),
     },
@@ -199,15 +196,8 @@ AGENT_TYPES = {
 
 
 def get_descriptions() -> str:
+    """获取所有 Subagent 类型的描述"""
     return "\n".join(f"- {name}: {cfg['description']}" for name, cfg in AGENT_TYPES.items())
-
-
-def _filter_tools(agent_type: str, base_tools: list) -> list:
-    """Return tools for this agent type. Task is never included (no recursion)."""
-    allowed = AGENT_TYPES[agent_type]["tools"]
-    if allowed == "*":
-        return [t for t in base_tools if t.name != "Task"]
-    return [t for t in base_tools if t.name in allowed]
 
 
 # =============================================================================
@@ -468,21 +458,12 @@ def _run_ooda_loop(
     output = summary_resp.content.strip()
     return output, tool_count
 
-def _prepare_subagent(subagent_type: str, base_tools: list):
-    """Step 1: validate, filter tools, build system prompt, create LLM."""
-    from backend.app.tools.base import WORKDIR
-    config = AGENT_TYPES[subagent_type]
-    sub_tools = _filter_tools(subagent_type, base_tools)
-    sub_system = (
-        f"You are a {subagent_type} subagent at {WORKDIR}.\n\n"
-        f"{config['prompt']}\n\n"
-        "Complete the task and return a clear, concise summary."
-    )
-    llm = ChatOpenAI(model=DEEPSEEK_MODEL, api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
-    return sub_tools, sub_system, llm
 
+# =============================================================================
+# Subagent Runner (使用 SubagentContext)
+# =============================================================================
 
-def _start_span(subagent_type: str, description: str, sub_tools: list) -> tuple[str, float]:
+def _start_span(subagent_type: str, description: str, sub_tools: list):
     """Step 2: print startup info and emit tracer start event."""
     G = "\033[90m"
     R = "\033[0m"
@@ -496,30 +477,6 @@ def _start_span(subagent_type: str, description: str, sub_tools: list) -> tuple[
     return span_id, time.time()
 
 
-def _invoke_direct(llm, sub_system: str, prompt: str) -> tuple[str, int]:
-    """Step 3a: no-tool path — single LLM call, no agent loop."""
-    result = llm.invoke([SystemMessage(content=sub_system), HumanMessage(content=prompt)])
-    return result.content.strip(), 0
-
-
-def _invoke_with_tools(
-    llm, sub_tools: list, sub_system: str, prompt: str,
-    subagent_type: str, span_id: str, recursion_limit: int,
-) -> tuple[str, int]:
-    """Step 3b: tool-enabled path — OODA or ReAct loop depending on agent type."""
-    if subagent_type == "OODASubagent":
-        return _run_ooda_loop(
-            llm=llm, sub_tools=sub_tools, sub_system=sub_system, prompt=prompt,
-            subagent_type=subagent_type, span_id=span_id,
-        )
-    agent = create_agent(llm, sub_tools, system_prompt=sub_system)
-    return _run_react_loop(
-        agent=agent, prompt=prompt, subagent_type=subagent_type,
-        span_id=span_id, llm=llm, sub_system=sub_system,
-        recursion_limit=recursion_limit,
-    )
-
-
 def _end_span(span_id: str, subagent_type: str, tool_count: int, start: float, output: str) -> None:
     """Step 4: print completion info and emit tracer end event."""
     G = "\033[90m"
@@ -530,12 +487,7 @@ def _end_span(span_id: str, subagent_type: str, tool_count: int, start: float, o
                 tool_count=tool_count, duration_ms=round(elapsed * 1000), output=output[:300])
 
 
-def _save_subagent_session(subagent_type: str, prompt: str, output: str) -> None:
-    """Step 5: persist conversation to session store."""
-    save_session(subagent_type, [HumanMessage(content=prompt), AIMessage(content=output)])
-
-
-def _check_and_truncate_prompt(prompt: str, llm: ChatOpenAI) -> str:
+def _check_and_truncate_prompt(prompt: str, llm) -> str:
     """
     Check prompt size and truncate if necessary to prevent context overflow.
 
@@ -572,34 +524,75 @@ def _check_and_truncate_prompt(prompt: str, llm: ChatOpenAI) -> str:
     return truncated + warning
 
 
-# =============================================================================
-# Subagent Runner
-# =============================================================================
+def run_subagent_with_context(
+    sub_context,
+    description: str,
+    prompt: str,
+    recursion_limit: int = 100
+) -> str:
+    """
+    使用 SubagentContext 运行 Subagent
 
-def run_subagent(description: str, prompt: str, subagent_type: str, base_tools: list, recursion_limit: int = 100) -> str:
-    """Spawn a subagent with isolated context. Task tool is always excluded."""
-    if subagent_type not in AGENT_TYPES:
-        return f"Error: Unknown agent type '{subagent_type}'"
+    Args:
+        sub_context: SubagentContext 实例（独立的上下文，通过 session_key 共享资源）
+        description: 任务描述
+        prompt: 用户输入
+        recursion_limit: 递归限制
 
-    # 1. prepare
-    sub_tools, sub_system, llm = _prepare_subagent(subagent_type, base_tools)
+    Returns:
+        Subagent 输出
+    """
+    subagent_type = sub_context.subagent_type
 
-    # 1.5. check and truncate prompt if too large
+    # 使用 SubagentContext 的资源
+    llm = sub_context.llm
+    tools = sub_context.tools
+    system_prompt = sub_context.system_prompt
+
+    # 1. 检查并截断 prompt
     prompt = _check_and_truncate_prompt(prompt, llm)
 
-    # 2. start span
-    span_id, start = _start_span(subagent_type, description, sub_tools)
+    # 2. 开始 span
+    span_id, start = _start_span(subagent_type, description, tools)
 
-    # 3. execute
-    if not sub_tools:
-        output, tool_count = _invoke_direct(llm, sub_system, prompt)
+    # 3. 执行（根据类型选择 loop）
+    if subagent_type == "OODASubagent":
+        output, tool_count = _run_ooda_loop(
+            llm=llm,
+            sub_tools=tools,
+            sub_system=system_prompt,
+            prompt=prompt,
+            subagent_type=subagent_type,
+            span_id=span_id
+        )
+    elif not tools:
+        # 无工具：直接 LLM 调用
+        from langchain_core.messages import SystemMessage, HumanMessage
+        result = llm.invoke([SystemMessage(content=system_prompt), HumanMessage(content=prompt)])
+        output = result.content.strip()
+        tool_count = 0
     else:
-        output, tool_count = _invoke_with_tools(llm, sub_tools, sub_system, prompt, subagent_type, span_id, recursion_limit)
+        # 有工具：使用 ReAct loop
+        agent = sub_context.agent
+        output, tool_count = _run_react_loop(
+            agent=agent,
+            prompt=prompt,
+            subagent_type=subagent_type,
+            span_id=span_id,
+            llm=llm,
+            sub_system=system_prompt,
+            recursion_limit=recursion_limit
+        )
 
-    # 4. end span
+    # 4. 结束 span
     _end_span(span_id, subagent_type, tool_count, start, output)
 
-    # 5. save session
-    _save_subagent_session(subagent_type, prompt, output)
+    # 5. 保存 session
+    sub_context.session_store.save_turn(
+        subagent_type,
+        prompt,
+        output,
+        []
+    )
 
     return output or "(subagent returned no text)"

@@ -3,22 +3,30 @@
 
 参考 s06_intelligence.py 的工具设计，通过 session 实现记忆的写入和搜索。
 """
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 from backend.app.session import get_store
 
 
 @tool(tags=["both"])
 def memory_write(content: str, category: str = "general") -> str:
     """
-    Save an important fact or observation to long-term memory.
-    Use when you learn something worth remembering about the user or context.
+    Save an important fact or observation to memory (auto-layered storage).
 
     Args:
         content: The fact or observation to remember
-        category: Category (preference, fact, context, etc.)
+        category: Memory category (determines storage location)
+            - "session" or "general": Temporary session info (current conversation only)
+            - "preference": User preferences (persistent across sessions)
+            - "architecture": Project architecture/patterns (persistent across sessions)
+            - "tool": Tool usage tips/patterns (persistent across sessions)
 
     Returns:
         Operation result message
+
+    Examples:
+        memory_write("User prefers concise code", "preference")
+        memory_write("Project uses FastAPI + LangChain", "architecture")
+        memory_write("Found agent.py in backend/app/", "session")
     """
     store = get_store()
     return store.write_memory(content, category)

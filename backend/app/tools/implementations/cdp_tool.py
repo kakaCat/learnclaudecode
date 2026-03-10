@@ -4,7 +4,7 @@ import json
 from typing import Literal, Optional
 from pathlib import Path
 from datetime import datetime, timedelta
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 
 logger = logging.getLogger(__name__)
 

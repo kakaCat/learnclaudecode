@@ -1,4 +1,4 @@
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 
 from backend.app.worktree import get_worktrees, get_events
 from backend.app.task import get_tasks

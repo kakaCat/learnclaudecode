@@ -64,10 +64,15 @@ class ToolsManager:
         print("=" * 80)
         return self
 
-    def build_task_tool(self) -> "ToolsManager":
-        """创建 Task 工具并注册。subagent tools 在调用时从 manager 动态获取。"""
+    def build_task_tool(self, main_context=None) -> "ToolsManager":
+        """
+        创建 Task 工具并注册
+
+        Args:
+            main_context: MainContext 实例（用于创建 Subagent）
+        """
         from backend.app.tools.implementations.spawn_tool import make_task_tool
-        self._task_tool = make_task_tool()
+        self._task_tool = make_task_tool(main_context)
         self._tools[self._task_tool.name] = self._task_tool
         return self
 
@@ -88,12 +93,17 @@ class ToolsManager:
 
         return self
 
-    def _ensure_initialized(self):
-        """确保工具已初始化（延迟初始化，避免循环导入）"""
+    def _ensure_initialized(self, main_context=None):
+        """
+        确保工具已初始化（延迟初始化，避免循环导入）
+
+        Args:
+            main_context: MainContext 实例（用于创建 Task tool）
+        """
         if not self._initialized:
             from pathlib import Path
             tools_dir = Path(__file__).parent
-            self.auto_discover(tools_dir).build_task_tool()
+            self.auto_discover(tools_dir).build_task_tool(main_context)
             self._initialized = True
 
     def get_tools(self, scope: str = "all") -> list:
@@ -117,7 +127,7 @@ class ToolsManager:
         filtered = []
         for tool in self._tools.values():
             # 从 tags 中提取 scope
-            tags = getattr(tool, "tags", [])
+            tags = getattr(tool, "tags", None) or []
             if "main" in tags:
                 tool_scope = "main"
             elif "subagent" in tags:

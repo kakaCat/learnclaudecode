@@ -2,6 +2,7 @@ import subprocess
 import threading
 import time
 import uuid
+import shutil
 
 from backend.app.tools.base import WORKDIR
 from backend.app.context import tracer
@@ -9,6 +10,20 @@ from backend.app.context import tracer
 _tasks: dict = {}
 _notification_queue: list = []
 _lock = threading.Lock()
+
+
+def _send_system_notification(title: str, message: str):
+    """发送 macOS 系统通知"""
+    if shutil.which("terminal-notifier"):
+        try:
+            subprocess.run([
+                "terminal-notifier",
+                "-title", title,
+                "-message", message,
+                "-sound", "default"
+            ], timeout=2, capture_output=True)
+        except Exception:
+            pass
 
 
 def execute(task_id: str, command: str):
@@ -31,6 +46,10 @@ def execute(task_id: str, command: str):
     tracer.emit("background.end", task_id=task_id, command=command[:120],
                 status=status, duration_ms=duration_ms,
                 ok=status == "completed", output=output[:300])
+    _send_system_notification(
+        f"任务{status}",
+        f"{command[:60]}\n{output[:100] if output else '(no output)'}"
+    )
     with _lock:
         _notification_queue.append({
             "task_id": task_id, "status": status,
@@ -70,6 +89,10 @@ def execute_agent(task_id: str, description: str, prompt: str, subagent_type: st
     _tasks[task_id]["status"] = status
     _tasks[task_id]["result"] = (output or "(no output)")[:50000]
     tracer.emit("background.agent.end", task_id=task_id, status=status, duration_ms=duration_ms)
+    _send_system_notification(
+        f"Agent任务{status}",
+        f"{subagent_type}: {description[:50]}\n{output[:100] if output else '(no output)'}"
+    )
     with _lock:
         _notification_queue.append({
             "task_id": task_id, "status": status,

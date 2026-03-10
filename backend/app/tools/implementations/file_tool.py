@@ -1,7 +1,6 @@
 import logging
 import subprocess
-from langchain_core.tools import tool
-from backend.app.tools.base import WORKDIR, _safe_path
+from backend.app.tools.base import WORKDIR, _safe_path, tool
 
 logger = logging.getLogger(__name__)
 

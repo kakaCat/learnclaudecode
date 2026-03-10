@@ -1,6 +1,6 @@
 import logging
 
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 
 from backend.app.skill import SKILL_LOADER
 

@@ -2,10 +2,11 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from langchain_core.messages import HumanMessage, AIMessage
-from backend.app.context import AgentContext
+from backend.app.context.main_context import MainContext
+from backend.app.context.subagent_context import SubagentContext
 from backend.app.config import DEEPSEEK_MODEL
 from backend.app.notifications import NotificationService
 from backend.app.guards.todo_reminder import TodoReminderGuard
@@ -97,30 +98,65 @@ class AgentRun:
 
 
 class AgentService:
-    def __init__(self, enable_lifecycle: bool = True):
+    """
+    Agent 服务 - 负责运行 Agent 并处理对话流程
+
+    支持两种 Context：
+    - MainContext: 主 Agent（默认）
+    - SubagentContext: 子 Agent
+    """
+
+    def __init__(self, context: Union[MainContext, SubagentContext] = None, enable_lifecycle: bool = True):
+        """
+        初始化 Agent 服务
+
+        Args:
+            context: Agent 上下文（MainContext 或 SubagentContext）
+                    如果为 None，则创建默认的 MainContext
+            enable_lifecycle: 是否启用生命周期管理
+        """
         # 核心依赖
-        self.context = AgentContext.create_default("")
+        if context is None:
+            # 默认创建 MainContext（向后兼容）
+            self.context = MainContext("")
+        else:
+            self.context = context
+
         self.notification_service = NotificationService()
+
         # 功能守卫
         self.todo_reminder = TodoReminderGuard()
         self.reflection_gate = ReflectionGatekeeper()
+
         # 智能化组件
         from backend.app.reliability import get_retry_strategy, get_monitor
         self.retry_strategy = get_retry_strategy()
         self.monitor = get_monitor()
+
         # 生命周期管理
         self.enable_lifecycle = enable_lifecycle
         self.lifecycle_manager = None
         if enable_lifecycle:
             self.lifecycle_manager = get_global_lifecycle()
+
         # UI 状态
         self._first_run = True
+
         # 配置参数
         self.monitor_check_interval = 3  # 监控检查间隔
 
+        # 判断是 Main 还是 Subagent
+        self.is_subagent = isinstance(context, SubagentContext)
+        self.agent_name = context.subagent_type if self.is_subagent else "main"
+
     def switch_session(self, session_key: str):
         """切换到指定 session，重置所有状态"""
-        self.context.set_session_key(session_key)
+        if isinstance(self.context, MainContext):
+            self.context.set_session_key(session_key)
+        else:
+            # Subagent 通过 main_context 切换
+            self.context.main_context.set_session_key(session_key)
+
         self.todo_reminder.reset()
         self.reflection_gate.reset()
         self._first_run = True
@@ -158,14 +194,14 @@ class AgentService:
             准备好的历史消息列表
         """
         # 应用对话历史压缩策略
-        conversation_history = self.context.get_conversation_history()
+        conversation_history = self.context.conversation_history
         conversation_history.set_messages(history)
         conversation_history.apply_strategies()
         history = conversation_history.get_messages()
 
         # 自动召回相关记忆（优先级最高，作为上下文基础）
         from backend.app.prompts import auto_recall_memory
-        recalled = auto_recall_memory(self.context.get_session_key(), prompt)
+        recalled = auto_recall_memory(self.context.session_key, prompt)
         if recalled:
             memory_msg = HumanMessage(content=f"<recalled-memory>\n{recalled}\n</recalled-memory>")
             history.insert(0, memory_msg)
@@ -275,7 +311,7 @@ class AgentService:
         # 定期检查是否偏离目标
         if self.monitor.should_check(total_tools, check_interval=self.monitor_check_interval):
             try:
-                check = await self.monitor.check_on_track(self.context.get_llm())
+                check = await self.monitor.check_on_track(self.context.llm)
                 if not check.get("on_track", True):
                     _log("⚠️", f"偏离检测: {check.get('reason', 'unknown')}")
                     _log("💡", f"建议: {check.get('suggestion', 'continue')}")
@@ -296,7 +332,7 @@ class AgentService:
                     output=content_str[:500])
 
         # Save tool result to transcript
-        self.context.get_store().save_tool_result("main", last.name, call_id, content_str)
+        self.context.session_store.save_tool_result(self.agent_name, last.name, call_id, content_str)
 
         # 更新守卫状态
         self.todo_reminder.on_tool_call(last.name)
@@ -332,16 +368,23 @@ class AgentService:
 
         # Filter out AIMessages with tool_calls to avoid API validation error
         clean_messages = []
+        skip_tool_messages = False
         for msg in last_state_messages:
             if isinstance(msg, AIMessage) and getattr(msg, "tool_calls", None):
+                skip_tool_messages = True
                 continue
+            if isinstance(msg, ToolMessage):
+                if skip_tool_messages:
+                    continue
+            else:
+                skip_tool_messages = False
             clean_messages.append(msg)
 
         fallback_messages = clean_messages + [
             HumanMessage(content=f"工具调用结果如下：\n{tool_context}\n\n请根据以上结果，用中文简洁地回答用户的问题，直接引用工具返回的原始数据，不要编造任何ID或数值。")
         ]
         t_fallback = time.time()
-        resp = self.context.get_overflow_guard().guard_invoke(messages=fallback_messages)
+        resp = self.context.overflow_guard.guard_invoke(messages=fallback_messages)
         output = resp.content
         tracer.emit("llm.fallback", duration_ms=round((time.time() - t_fallback) * 1000),
                     output_preview=output[:200])
@@ -366,32 +409,32 @@ class AgentService:
             if hasattr(msg, "tool_calls") and msg.tool_calls:
                 tool_calls_data = [{"name": tc["name"], "args": tc["args"]} for tc in msg.tool_calls]
                 break
-        self.context.get_store().save_turn("main", prompt, output, tool_calls_data)
+        self.context.session_store.save_turn(self.agent_name, prompt, output, tool_calls_data)
 
     async def run(self, prompt: str, history: list = None) -> str:
         if history is None:
             history = []
 
         # 第一次对话时创建 session（如果还没有）
-        if not self.context.get_session_key():
+        if not self.context.session_key:
             session_key = self.context.new_session_key()
             self.context.set_session_key(session_key)  # 自动同步到全局
             _log("🆕", f"创建新 session: {session_key}")
 
         # 第一次 run 时打印 Agent 就绪信息
         if self._first_run:
-            _log("🤖", f"Agent 就绪 | session={self.context.get_session_key()} | 模型={DEEPSEEK_MODEL}")
+            _log("🤖", f"Agent 就绪 | session={self.context.session_key} | 模型={DEEPSEEK_MODEL}")
             self._first_run = False
 
         # Apply compaction strategies via conversation history
-        conversation_history = self.context.get_conversation_history()
+        conversation_history = self.context.conversation_history
         conversation_history.set_messages(history)
         conversation_history.apply_strategies()
         history = conversation_history.get_messages()
 
         # 自动召回相关记忆（优先级最高，作为上下文基础）
         from backend.app.prompts import auto_recall_memory
-        recalled = auto_recall_memory(self.context.get_session_key(), prompt)
+        recalled = auto_recall_memory(self.context.session_key, prompt)
         if recalled:
             memory_msg = HumanMessage(content=f"<recalled-memory>\n{recalled}\n</recalled-memory>")
             history.insert(0, memory_msg)
@@ -405,13 +448,13 @@ class AgentService:
 
         _log("👤", f"用户输入: {prompt}")
         run_start = time.time()
-        tracer = self.context.get_tracer()
+        tracer = self.context.tracer
         rid = tracer.new_run_id()
         tracer.set_run_id(rid)
-        tracer.emit("run.start", prompt=prompt, session=self.context.get_session_key())
+        tracer.emit("run.start", prompt=prompt, session=self.context.session_key)
 
         # 记录系统提示词（每次 run 开始时记录一次）
-        system_prompt = self.context.get_system_prompt()
+        system_prompt = self.context.system_prompt
         tracer.emit("system.prompt", content=system_prompt[:5000], full_length=len(system_prompt))
 
         # 设置监控目标
@@ -422,7 +465,7 @@ class AgentService:
         run.messages = self._build_messages(history, prompt)
         run.last_state_messages = run.messages
 
-        async for step in self.context.get_agent().astream({"messages": run.messages}, stream_mode="updates"):
+        async for step in self.context.agent.astream({"messages": run.messages}, stream_mode="updates"):
             for node, state in step.items():
                 last = state["messages"][-1]
 

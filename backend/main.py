@@ -29,11 +29,11 @@ from prompt_toolkit.styles import Style
 COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions", "/insight", "/insight-llm"]
 
 from backend.app.agent import AgentService
-from backend.app.context import AgentContext
+from backend.app.context.main_context import MainContext
 from backend.app.memory.compaction import auto_compact
 from backend.app.task.task_manager import TaskManager
 from backend.app.team.state import get_bus, get_team
-from backend.app.session import list_sessions, load_session, get_session_dir, SESSIONS_DIR
+from backend.app.session import list_sessions, load_session, get_session_dir, SESSIONS_DIR, new_session_key
 
 STYLE = Style.from_dict({"prompt": "ansicyan bold"})
 PROMPT = [("class:prompt", "agent >> ")]
@@ -244,7 +244,14 @@ if __name__ == "__main__":
             sys.exit(1)
         args = args[2:] if len(args) > 1 else []
 
-    agent = AgentService()
+    # 创建 MainContext 和 AgentService
+    if resume_key:
+        context = MainContext(resume_key)
+    else:
+        session_key = new_session_key()
+        context = MainContext(session_key)
+
+    agent = AgentService(context=context)
 
     # 启动生命周期管理系统
     from backend.app.reliability import start_lifecycle, get_lifecycle_status
@@ -266,8 +273,10 @@ if __name__ == "__main__":
 
     if resume_key:
         history = load_session("main", resume_key)
-        agent.switch_session(resume_key)  # 切换session并重置状态
+        # context 已经在创建时设置了 session_key，不需要再 switch
         print(f"Resumed session '{resume_key}' ({len(history)} messages)\n")
+    else:
+        print(f"New session '{context.session_key}'\n")
 
     if args:
         # Subagent mode: single run

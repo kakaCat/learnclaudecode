@@ -1,6 +1,6 @@
 import logging
 import re
-from langchain_core.tools import tool
+from backend.app.tools.base import tool
 from backend.app.tools.base import WORKDIR, SKIP_DIRS, _safe_path
 
 logger = logging.getLogger(__name__)
