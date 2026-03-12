@@ -5,7 +5,7 @@ import uuid
 import shutil
 
 from backend.app.tools.base import WORKDIR
-from backend.app.context import tracer
+from backend.app.core import tracer
 
 _tasks: dict = {}
 _notification_queue: list = []

@@ -2,27 +2,34 @@
 Subagent module - 提供 Subagent 类型注册和辅助函数
 
 Architecture:
-    Main Agent (MainContext + AgentService)
+    Main Agent (MainAgentContext + AgentService)
         └── Task tool
-              └── SubagentContext (独立创建)
-                    └── run_subagent_with_context (执行逻辑)
+              └── SubagentContext (辅助工具，提供资源)
+                    └── SubagentRunner (执行器，调用 SubagentContext)
 
-Registry defines agent types and their allowed tools.
+SubagentContext 提供资源，Subagents 调用它来执行。
 """
 import logging
 import time
 
 from langchain_core.messages import SystemMessage, HumanMessage
-from backend.app.context.tracer import Tracer
+from backend.app.core.tracer import Tracer
+
+# 导入 registry 和相关函数
+from backend.app.subagents.registry import registry, get_descriptions, register_all_agents
+
+# 确保所有 Agent 已注册
+register_all_agents()
 
 tracer = Tracer()
 
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Agent Registry
+# 废弃的 AGENT_TYPES（保留用于向后兼容，但不再使用）
 # =============================================================================
 
+# DEPRECATED: 使用 registry 替代
 AGENT_TYPES = {
     "Explore": {
         "description": "Read-only agent for exploring code, finding files, searching",
@@ -116,13 +123,25 @@ AGENT_TYPES = {
         "description": "意图识别智能体，分析用户输入识别核心意图、所需信息和模糊点，返回结构化分析结果",
         "tools": ["memory_search", "memory_write"],
         "prompt": (
-            "你是意图识别智能体。先用 memory_search 查询用户历史偏好和意图模式，然后分析用户输入，识别以下内容：\n"
-            "1. 主要意图（用户想完成什么？）\n"
-            "2. 次要意图（隐含的目标或子任务？）\n"
-            "3. 所需信息（完成意图需要哪些信息？）\n"
-            "4. 模糊点（哪些地方不清楚或可能有多种理解？）\n"
-            "5. 置信度（对意图判断的确定程度？）\n\n"
-            "用 memory_write(pattern, 'preference') 记录识别出的用户意图模式。\n\n"
+            "你是意图识别智能体。\n\n"
+            "⚠️ 重要：你的任务是分析**当前用户输入**的意图，不要被历史记录干扰。\n\n"
+            "工作流程：\n"
+            "1. **先召回意图模式**：\n"
+            "   用 memory_search(query='intent patterns') 查询已识别的意图类型和模式\n"
+            "   这些历史模式可以帮助你更准确地分类当前意图\n\n"
+            "2. **重点分析当前用户输入**，识别以下内容：\n"
+            "   - 主要意图：用户想完成什么核心任务？\n"
+            "   - 次要意图：隐含的子任务或目标？\n"
+            "   - 所需信息：完成意图需要哪些关键信息？\n"
+            "   - 模糊点：哪些地方不清楚或可能有多种理解？\n"
+            "   - 置信度：对意图判断的确定程度（0.0-1.0）\n\n"
+            "3. **记录新的意图模式**：\n"
+            "   用 memory_write(content, 'preference') 记录识别出的新意图类型\n"
+            "   格式：'intent_type: {intent_name} | keywords: {关键词} | example: {用户输入示例}'\n\n"
+            "意图命名规范：\n"
+            "- 使用下划线分隔的小写英文（如：create_travel_plan, query_information）\n"
+            "- 动词开头，描述用户想做什么\n"
+            "- 具体而不模糊（避免 'do_something' 这样的泛化命名）\n\n"
             "只返回有效的 JSON，包含以下键：\n"
             "  primary_intent: string（主要意图）\n"
             "  secondary_intents: list of strings（次要意图列表）\n"
@@ -158,15 +177,32 @@ AGENT_TYPES = {
         "tools": ["cdp_browser", "workspace_write", "workspace_read", "memory_search", "memory_write"],
         "prompt": (
             "你是CDP浏览器操作智能体，专门处理需要访问网页收集信息的任务。\n\n"
-            "工作流程：\n"
-            "1. 先检查 CDP 服务是否可用（cdp_browser action='check_health'）\n"
-            "2. 访问网页提取信息（navigate → content）\n"
-            "3. 信息量大时保存到文件（workspace_write）\n"
-            "4. 多个网页时分别保存，最后汇总\n\n"
-            "注意：\n"
-            "- 必须实际访问网站，不要生成假数据\n"
-            "- CDP 不可用时说明原因和启动方法\n"
-            "- 返回时说明保存了哪些文件"
+            "⚠️ 重要：你必须实际调用工具完成任务，不要只返回文字说明！\n\n"
+            "强制工作流程：\n"
+            "1. **必须先检查健康状态**：\n"
+            "   调用 cdp_browser(action='check_health')\n"
+            "   - 如果不可用，返回错误信息和启动方法\n"
+            "   - 如果可用，继续下一步\n\n"
+            "2. **必须访问目标网页**：\n"
+            "   调用 cdp_browser(action='navigate', url='目标URL')\n"
+            "   等待页面加载完成\n\n"
+            "3. **必须提取页面内容**：\n"
+            "   调用 cdp_browser(action='content')\n"
+            "   获取页面的文本内容或HTML\n\n"
+            "4. **处理提取的数据**：\n"
+            "   - 解析内容，提取关键信息\n"
+            "   - 如果信息量大，用 workspace_write 保存到文件\n"
+            "   - 返回提取的结构化数据\n\n"
+            "5. **多个网页时**：\n"
+            "   - 分别访问每个网页\n"
+            "   - 分别保存结果\n"
+            "   - 最后汇总所有信息\n\n"
+            "约束：\n"
+            "- 禁止生成假数据或模拟数据\n"
+            "- 禁止只返回文字说明而不调用工具\n"
+            "- 必须实际访问网站获取真实数据\n"
+            "- CDP 不可用时必须明确说明原因和解决方法\n"
+            "- 完成时必须说明保存了哪些文件或返回了什么数据"
         ),
     },
     "ToolRepair": {
@@ -194,10 +230,10 @@ AGENT_TYPES = {
     },
 }
 
-
+# DEPRECATED: 使用 registry.get_descriptions() 替代
 def get_descriptions() -> str:
-    """获取所有 Subagent 类型的描述"""
-    return "\n".join(f"- {name}: {cfg['description']}" for name, cfg in AGENT_TYPES.items())
+    """获取所有 Subagent 类型的描述（废弃，使用 registry）"""
+    return registry.get_descriptions()
 
 
 # =============================================================================

@@ -1,6 +1,6 @@
 from backend.app.worktree.event_bus import EventBus
 from backend.app.worktree.worktree_manager import WorktreeManager
-from backend.app.task import get_tasks
+from backend.app.task import get_task_service
 
 import subprocess
 from pathlib import Path
@@ -36,5 +36,5 @@ def get_events() -> EventBus:
 def get_worktrees() -> WorktreeManager:
     global _WORKTREES
     if _WORKTREES is None:
-        _WORKTREES = WorktreeManager(_repo_root(), get_tasks(), get_events())
+        _WORKTREES = WorktreeManager(_repo_root(), get_task_service(), get_events())
     return _WORKTREES

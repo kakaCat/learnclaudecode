@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from backend.app.skill import SKILL_LOADER
+from backend.app.skills import SKILL_LOADER
 from backend.app.session import get_store
 
 
@@ -115,6 +115,53 @@ def get_system_prompt(session_key: str = "") -> str:
         系统提示词
     """
     return build_system_prompt(session_key, mode="full")
+
+
+def get_teammate_system_prompt(name: str, role: str, session_key: str = "") -> str:
+    """
+    获取 Teammate 的系统提示词
+
+    Args:
+        name: Teammate 名称
+        role: Teammate 角色
+        session_key: 会话 key
+
+    Returns:
+        系统提示词
+    """
+    from backend.app.tools.base import WORKDIR
+    from backend.app.session import get_team_config_path
+    import json
+
+    # 获取团队名称
+    config_path = get_team_config_path()
+    team_name = "default"
+    if config_path.exists():
+        config = json.loads(config_path.read_text())
+        team_name = config.get("team_name", "default")
+
+    # 构建基础 prompt
+    base_prompt = build_system_prompt(session_key, mode="minimal")
+
+    # 添加 Teammate 特定信息
+    teammate_prompt = (
+        f"{base_prompt}\n\n"
+        f"## Teammate Identity\n\n"
+        f"You are '{name}', role: {role}, team: {team_name}, working at {WORKDIR}.\n\n"
+        f"## Communication\n\n"
+        f"- Use send_message(to, content) to communicate with other teammates or lead\n"
+        f"- Use read_inbox_tool() to check your inbox\n"
+        f"- Use claim_task_tool() to claim tasks from the queue\n"
+        f"- Use report_progress_tool(task_id, status, message) to report progress\n\n"
+        f"## Workflow\n\n"
+        f"1. Check inbox for messages\n"
+        f"2. Claim tasks from the queue if available\n"
+        f"3. Execute tasks using available tools\n"
+        f"4. Report progress and results\n"
+        f"5. Enter idle state when no work available\n"
+    )
+
+    return teammate_prompt
 
 
 def auto_recall_memory(session_key: str, user_message: str) -> str:

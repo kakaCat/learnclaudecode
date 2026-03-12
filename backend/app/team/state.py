@@ -4,7 +4,7 @@ from pathlib import Path
 
 from backend.app.team.message_bus import MessageBus
 from backend.app.team.teammate_manager import TeammateManager
-from backend.app.task.task_manager import TaskStatus
+from backend.app.task import TaskStatus
 
 _bus: "MessageBus | None" = None
 _team: "TeammateManager | None" = None

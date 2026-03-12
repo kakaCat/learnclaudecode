@@ -5,7 +5,8 @@ import time
 from pathlib import Path
 
 from backend.app.worktree.event_bus import EventBus
-from backend.app.task.task_manager import TaskStatus
+from backend.app.task import TaskStatus, TaskConverter
+from backend.app.task.exceptions import TaskNotFoundError
 
 
 class WorktreeManager:
@@ -62,8 +63,11 @@ class WorktreeManager:
         self._validate_name(name)
         if self._find(name):
             raise ValueError(f"Worktree '{name}' already exists in index")
-        if task_id is not None and not self.tasks.exists(task_id):
-            raise ValueError(f"Task {task_id} not found")
+        if task_id is not None:
+            try:
+                self.tasks.get_task(task_id)
+            except TaskNotFoundError:
+                raise ValueError(f"Task {task_id} not found")
         path = self.dir / name
         branch = f"wt/{name}"
         self.events.emit("worktree.create.before",
@@ -145,11 +149,11 @@ class WorktreeManager:
             self._run_git(args)
             if complete_task and wt.get("task_id") is not None:
                 task_id = wt["task_id"]
-                before = json.loads(self.tasks.get(task_id))
-                self.tasks.update(task_id, status="completed")
+                before = self.tasks.get_task(task_id)
+                self.tasks.complete_task(task_id)
                 self.tasks.unbind_worktree(task_id)
                 self.events.emit("task.completed",
-                                 task={"id": task_id, "subject": before.get("subject", ""), "status": TaskStatus.COMPLETED},
+                                 task={"id": task_id, "subject": before.subject, "status": TaskStatus.COMPLETED},
                                  worktree={"name": name})
             idx = self._load_index()
             for item in idx.get("worktrees", []):

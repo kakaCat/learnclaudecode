@@ -2,7 +2,7 @@ import json
 import time
 from pathlib import Path
 
-from backend.app.context import tracer
+from backend.app.core import tracer
 
 
 class EventBus:

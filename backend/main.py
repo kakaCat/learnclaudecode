@@ -28,10 +28,11 @@ from prompt_toolkit.styles import Style
 
 COMMANDS = ["/compact", "/tasks", "/team", "/inbox", "/sessions", "/insight", "/insight-llm"]
 
-from backend.app.agent import AgentService
-from backend.app.context.main_context import MainContext
+# 使用新架构的适配器
+from backend.app.services.main_agent_service_v2 import MainAgentService
 from backend.app.memory.compaction import auto_compact
-from backend.app.task.task_manager import TaskManager
+from backend.app.task import get_task_service
+from backend.app.task.converter import TaskConverter
 from backend.app.team.state import get_bus, get_team
 from backend.app.session import list_sessions, load_session, get_session_dir, SESSIONS_DIR, new_session_key
 
@@ -39,14 +40,14 @@ STYLE = Style.from_dict({"prompt": "ansicyan bold"})
 PROMPT = [("class:prompt", "agent >> ")]
 
 
-async def interactive(agent: AgentService, history: list):
+async def interactive(agent: MainAgentService, history: list):
     session = PromptSession(
         history=InMemoryHistory(),
         mouse_support=False,
         style=STYLE,
         completer=WordCompleter(COMMANDS, sentence=True),
     )
-    task_mgr = TaskManager()
+    task_service = get_task_service()
     print("Ctrl+C / Ctrl+D / 'exit' to quit. ↑↓ for history.")
     print("💡 Agent 运行时可以继续输入命令（输入会排队执行）\n")
 
@@ -87,7 +88,8 @@ async def interactive(agent: AgentService, history: list):
             continue
 
         if query == "/tasks":
-            print(task_mgr.list_all())
+            tasks = task_service.list_all_tasks()
+            print(TaskConverter.tasks_to_list_display(tasks, group_by="status"))
             continue
 
         if query == "/team":
@@ -244,14 +246,12 @@ if __name__ == "__main__":
             sys.exit(1)
         args = args[2:] if len(args) > 1 else []
 
-    # 创建 MainContext 和 AgentService
+    # 创建 MainAgentContext 和 AgentService
     if resume_key:
-        context = MainContext(resume_key)
+        agent = MainAgentService(session_key=resume_key, enable_lifecycle=True)
     else:
         session_key = new_session_key()
-        context = MainContext(session_key)
-
-    agent = AgentService(context=context)
+        agent = MainAgentService(session_key=session_key, enable_lifecycle=True)
 
     # 启动生命周期管理系统
     from backend.app.reliability import start_lifecycle, get_lifecycle_status
@@ -273,10 +273,9 @@ if __name__ == "__main__":
 
     if resume_key:
         history = load_session("main", resume_key)
-        # context 已经在创建时设置了 session_key，不需要再 switch
         print(f"Resumed session '{resume_key}' ({len(history)} messages)\n")
     else:
-        print(f"New session '{context.session_key}'\n")
+        print(f"New session '{agent.context.session_key}'\n")
 
     if args:
         # Subagent mode: single run

@@ -64,7 +64,7 @@ class ManualCompactionStrategy(CompactionStrategy):
     """手动压缩策略 - 用户触发"""
 
     def should_compact(self, history: List, context: Dict) -> bool:
-        from backend.app.compact import was_compact_requested
+        from backend.app.memory.compact import was_compact_requested
         return was_compact_requested()
 
     def compact(self, history: List, llm: ChatOpenAI) -> List:

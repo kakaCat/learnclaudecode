@@ -66,14 +66,35 @@ class ToolsManager:
 
     def build_task_tool(self, main_context=None) -> "ToolsManager":
         """
-        创建 Task 工具并注册
+        创建 Task 工具并注册，同时注入回调函数实现解耦
 
         Args:
-            main_context: MainContext 实例（用于创建 Subagent）
+            main_context: MainAgentContext 实例（用于创建 Subagent）
         """
-        from backend.app.tools.implementations.spawn_tool import make_task_tool
-        self._task_tool = make_task_tool(main_context)
-        self._tools[self._task_tool.name] = self._task_tool
+        # 注入 spawn 回调函数
+        from backend.app.tools.implementations.agent.spawn_tool import set_spawn_callback, Task
+
+        def spawn_callback(description: str, prompt: str, subagent_type: str, recursion_limit: int):
+            """Spawn subagent 的回调实现"""
+            from backend.app.context.subagent_context import SubagentContext
+            from backend.app.subagents.runner import run_subagent_with_context
+
+            sub_context = SubagentContext(main_context.session_key, subagent_type)
+            return run_subagent_with_context(
+                sub_context=sub_context,
+                description=description,
+                prompt=prompt,
+                recursion_limit=recursion_limit
+            )
+
+        set_spawn_callback(spawn_callback)
+        self._task_tool = Task
+        self._tools[Task.name] = Task
+
+        # 注入 background_agent 的工具获取回调
+        from backend.app.tools.implementations.execution.background_tool import set_get_tools_callback
+        set_get_tools_callback(lambda: self.get_subagent_tools())
+
         return self
 
     async def load_mcp_tools(self) -> "ToolsManager":
@@ -82,7 +103,7 @@ class ToolsManager:
             return self
 
         try:
-            from backend.app.tools.implementations.mcp_tool import get_mcp_tools
+            from backend.app.tools.mcp.mcp_tool import get_mcp_tools
             mcp_tools = await get_mcp_tools()
             for tool in mcp_tools:
                 self._tools[tool.name] = tool
@@ -98,7 +119,7 @@ class ToolsManager:
         确保工具已初始化（延迟初始化，避免循环导入）
 
         Args:
-            main_context: MainContext 实例（用于创建 Task tool）
+            main_context: MainAgentContext 实例（用于创建 Task tool）
         """
         if not self._initialized:
             from pathlib import Path
@@ -111,8 +132,9 @@ class ToolsManager:
         获取工具列表
 
         Args:
-            scope: "main" | "subagent" | "all"
-                - "main": 返回 main agent 可用的工具（包括 both 和 main）
+            scope: "main" | "team" | "subagent" | "all"
+                - "main": 返回 main agent 可用的工具（包括 both 和 main-only）
+                - "team": 返回 team agent 可用的工具（包括 both，排除 main-only，不包含通信工具）
                 - "subagent": 返回 subagent 可用的工具（包括 both，排除 main-only）
                 - "all": 返回所有工具
 
@@ -128,18 +150,29 @@ class ToolsManager:
         for tool in self._tools.values():
             # 从 tags 中提取 scope
             tags = getattr(tool, "tags", None) or []
+
+            # 确定工具的 scope
             if "main" in tags:
                 tool_scope = "main"
             elif "subagent" in tags:
                 tool_scope = "subagent"
+            elif "team" in tags:
+                tool_scope = "team"
             else:
                 tool_scope = "both"
 
+            # 过滤逻辑
             if tool_scope == "both":
+                # both 工具对所有 scope 可见
                 filtered.append(tool)
             elif scope == "main" and tool_scope == "main":
+                # main-only 工具只对 main 可见
+                filtered.append(tool)
+            elif scope == "team" and tool_scope == "team":
+                # team-only 工具只对 team 可见
                 filtered.append(tool)
             elif scope == "subagent" and tool_scope == "subagent":
+                # subagent-only 工具只对 subagent 可见
                 filtered.append(tool)
 
         return filtered
@@ -148,8 +181,12 @@ class ToolsManager:
         """获取 main agent 工具（包括 both 和 main-only）"""
         return self.get_tools(scope="main")
 
+    def get_team_tools(self) -> list:
+        """获取 team agent 工具（包括 both 和 Task，排除 spawn_teammate）"""
+        return self.get_tools(scope="team")
+
     def get_subagent_tools(self) -> list:
-        """获取 subagent 工具（包括 both，排除 main-only）"""
+        """获取 subagent 工具（包括 both，排除 main-only 和 team-only）"""
         return self.get_tools(scope="subagent")
 
     def get(self, name: str):
