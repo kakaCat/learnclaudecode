@@ -58,6 +58,20 @@ def write_file(path: str, content: str) -> str:
 
 
 @tool(tags=["both"])
+def append_file(path: str, content: str) -> str:
+    """Append content to a file. Creates file and parent directories if needed. Use for incremental file building."""
+    logger.info("append_file: %s (%d bytes)", path, len(content))
+    try:
+        fp = _safe_path(path)
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        with fp.open("a", encoding="utf-8") as f:
+            f.write(content)
+        return f"Appended {len(content)} bytes to {path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool(tags=["both"])
 def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
     """Replace exact text in a file. old_text must match verbatim.
     replace_all=False (default): replaces first occurrence only.

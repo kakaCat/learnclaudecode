@@ -89,18 +89,6 @@ def build_system_prompt(
 
     system_prompt = "\n\n".join(sections)
 
-    # 调试输出
-    print("=" * 80)
-    print("🔍 build_system_prompt 调试输出")
-    print("=" * 80)
-    print(f"📊 总字符数: {len(system_prompt)}")
-    print(f"📊 总行数: {len(system_prompt.splitlines())}")
-    print(f"🔑 Session key: {session_key}")
-    print(f"⚙️  Mode: {mode}")
-    print("=" * 80)
-    print(system_prompt)
-    print("=" * 80)
-
     return system_prompt
 
 

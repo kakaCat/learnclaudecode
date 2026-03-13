@@ -4,8 +4,8 @@ MainAgentService 适配器 - 使用新架构
 保持与旧接口兼容，内部使用新的 AgentRunner
 """
 from backend.app.core import AgentRunner
-from backend.app.core.factory import get_factory
-from backend.app.core.task_integration import setup_task_tool
+from backend.app.core.execution.factory import get_factory
+from backend.app.core.execution.task_integration import setup_task_tool
 
 
 class MainAgentService:

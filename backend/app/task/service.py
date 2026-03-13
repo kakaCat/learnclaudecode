@@ -9,7 +9,6 @@ import logging
 from backend.app.task.models import Task, TaskStatus, TaskPriority
 from backend.app.task.repository import TaskRepository
 from backend.app.task.exceptions import InvalidTaskStatusError, TaskNotFoundError, TaskValidationError
-from backend.app.core import tracer
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,6 @@ class TaskService:
         )
 
         self.repository.save(task)
-        tracer.emit("task.create", task_id=task_id, subject=subject, priority=priority.value)
         logger.info(f"Task created: {task_id} - {subject}")
 
         return task
@@ -165,15 +163,6 @@ class TaskService:
 
         self.repository.save(task)
 
-        # 发送状态变更事件
-        tracer.emit(
-            "task.status_changed",
-            task_id=task_id,
-            subject=task.subject,
-            from_status=old_status.value,
-            to_status=status.value
-        )
-
         logger.info(f"Task {task_id} status changed: {old_status.value} -> {status.value}")
         return task
 
@@ -206,7 +195,6 @@ class TaskService:
         task.updated_at = datetime.now()
         self.repository.save(task)
 
-        tracer.emit("task.started", task_id=task_id, owner=task.owner)
         logger.info(f"Task {task_id} started by {task.owner}")
 
         return task
@@ -353,14 +341,6 @@ class TaskService:
         task.updated_at = datetime.now()
         self.repository.save(task)
 
-        tracer.emit(
-            "task.worktree_bound",
-            task_id=task_id,
-            subject=task.subject,
-            worktree=worktree,
-            owner=owner or task.owner
-        )
-
         logger.info(f"Task {task_id} bound to worktree: {worktree}")
         return task
 
@@ -460,7 +440,6 @@ class TaskService:
 
         # 删除任务
         self.repository.delete(task_id)
-        tracer.emit("task.deleted", task_id=task_id)
         logger.info(f"Task {task_id} deleted")
 
     def list_all_tasks(self) -> List[Task]:

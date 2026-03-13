@@ -23,7 +23,8 @@ from backend.app.tools.implementations.storage import memory_tools, workspace_to
 from backend.app.tools.implementations.execution import background_tool, skill_tool
 
 # 集成工具 - 外部服务和协议
-from backend.app.tools.implementations.integration import mcp_tool, cdp_tool, curl_tool, explore_tool
+from backend.app.tools.implementations.integration import cdp_tool, curl_tool, explore_tool
+from backend.app.tools.mcp import mcp_tool
 
 # 系统工具 - 系统级操作
 from backend.app.tools.implementations.system import compact_tool, worktree_tool, team_tool

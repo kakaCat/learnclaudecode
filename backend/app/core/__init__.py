@@ -10,14 +10,14 @@ Core infrastructure layer - 核心基础设施层
 - MainContext/SubContext/TeamContext: 具体上下文实现
 """
 
-from backend.app.core.tool_registry import ToolRegistry, get_registry
-from backend.app.core.base_context import BaseContext
-from backend.app.core.main_context import MainContext
-from backend.app.core.sub_context import SubContext
-from backend.app.core.team_context import TeamContext
-from backend.app.core.history_manager import HistoryManager
-from backend.app.core.guard_manager import GuardManager
-from backend.app.core.agent_runner import AgentRunner
+from backend.app.core.tools.tool_registry import ToolRegistry, get_registry
+from backend.app.core.context.base_context import BaseContext
+from backend.app.core.context.main_context import MainContext
+from backend.app.core.context.sub_context import SubContext
+from backend.app.core.context.team_context import TeamContext
+from backend.app.core.tools.history_manager import HistoryManager
+from backend.app.core.guards.guard_manager import GuardManager
+from backend.app.core.execution.agent_runner import AgentRunner
 
 __all__ = [
     "ToolRegistry",

@@ -5,7 +5,6 @@ import uuid
 from pathlib import Path
 
 from backend.app.tools.base import WORKDIR
-from backend.app.core import tracer
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +38,6 @@ class TeammateManager:
         self.threads[name] = t
         t.start()
         logger.info("spawn_teammate: name=%s role=%s", name, role)
-        tracer.emit("teammate.spawn", name=name, role=role)
         return f"Spawned '{name}' (role: {role})"
 
     def _loop(self, name: str, role: str, prompt: str):

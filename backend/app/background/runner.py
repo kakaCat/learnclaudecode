@@ -5,7 +5,6 @@ import uuid
 import shutil
 
 from backend.app.tools.base import WORKDIR
-from backend.app.core import tracer
 
 _tasks: dict = {}
 _notification_queue: list = []
@@ -28,7 +27,6 @@ def _send_system_notification(title: str, message: str):
 
 def execute(task_id: str, command: str):
     t_start = time.time()
-    tracer.emit("background.start", task_id=task_id, command=command[:120])
     try:
         r = subprocess.run(command, shell=True, cwd=WORKDIR,
                            capture_output=True, text=True, timeout=300)
@@ -43,9 +41,6 @@ def execute(task_id: str, command: str):
     duration_ms = round((time.time() - t_start) * 1000)
     _tasks[task_id]["status"] = status
     _tasks[task_id]["result"] = output or "(no output)"
-    tracer.emit("background.end", task_id=task_id, command=command[:120],
-                status=status, duration_ms=duration_ms,
-                ok=status == "completed", output=output[:300])
     _send_system_notification(
         f"任务{status}",
         f"{command[:60]}\n{output[:100] if output else '(no output)'}"
@@ -77,9 +72,8 @@ def check(task_id: str = None) -> str:
 
 def execute_agent(task_id: str, description: str, prompt: str, subagent_type: str, base_tools: list):
     t_start = time.time()
-    tracer.emit("background.agent.start", task_id=task_id, subagent_type=subagent_type, description=description[:120])
     try:
-        from backend.app.subagents import run_subagent
+        from backend.app.core.execution.subagent_runner import run_subagent_with_context as run_subagent
         output = run_subagent(description, prompt, subagent_type, base_tools)
         status = "completed"
     except Exception as e:
@@ -88,7 +82,6 @@ def execute_agent(task_id: str, description: str, prompt: str, subagent_type: st
     duration_ms = round((time.time() - t_start) * 1000)
     _tasks[task_id]["status"] = status
     _tasks[task_id]["result"] = (output or "(no output)")[:50000]
-    tracer.emit("background.agent.end", task_id=task_id, status=status, duration_ms=duration_ms)
     _send_system_notification(
         f"Agent任务{status}",
         f"{subagent_type}: {description[:50]}\n{output[:100] if output else '(no output)'}"

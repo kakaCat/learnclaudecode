@@ -33,7 +33,9 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
-THRESHOLD = 50000
+from backend.app.config import COMPACTION_THRESHOLD
+
+THRESHOLD = COMPACTION_THRESHOLD
 KEEP_RECENT = 3
 
 

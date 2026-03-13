@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from typing import List, Dict
 from langchain_openai import ChatOpenAI
 
+from backend.app.config import COMPACTION_THRESHOLD
+
 
 class CompactionStrategy(ABC):
     """压缩策略抽象基类"""
@@ -41,15 +43,22 @@ class MicroCompactionStrategy(CompactionStrategy):
 class AutoCompactionStrategy(CompactionStrategy):
     """自动压缩策略 - 超过阈值时压缩"""
 
-    def __init__(self, threshold: int = 50000):
-        self.threshold = threshold
+    def __init__(self, threshold: int = None):
+        self.threshold = threshold or COMPACTION_THRESHOLD
 
     def should_compact(self, history: List, context: Dict) -> bool:
         guard = context.get("guard")
+        llm = context.get("llm")
+
+        # 动态计算阈值：LLM max_tokens 的 90%
+        threshold = self.threshold
+        if llm and hasattr(llm, "max_tokens") and llm.max_tokens:
+            threshold = int(llm.max_tokens * 0.9)
+
         if not guard:
             return False
         tokens = guard.estimate_messages_tokens(history)
-        return tokens > self.threshold
+        return tokens > threshold
 
     def compact(self, history: List, llm: ChatOpenAI) -> List:
         from backend.app.memory.guard import ContextGuard

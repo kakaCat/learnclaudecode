@@ -8,9 +8,15 @@ def get_llm(**kwargs) -> ChatOpenAI:
 
     kwargs 会透传给 ChatOpenAI，可覆盖默认参数（如 temperature、streaming 等）。
     """
+    # 设置默认 max_tokens，避免输出被截断
+    defaults = {
+        "max_tokens": 8192,  # DeepSeek 默认 4096 太小，提升到 8192
+    }
+    defaults.update(kwargs)
+
     return ChatOpenAI(
         model=DEEPSEEK_MODEL,
         api_key=DEEPSEEK_API_KEY,
         base_url=DEEPSEEK_BASE_URL,
-        **kwargs,
+        **defaults,
     )

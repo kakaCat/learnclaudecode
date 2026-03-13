@@ -2,7 +2,7 @@ import logging
 from typing import Callable, Optional
 
 from backend.app.tools.base import tool
-from backend.app.subagents.registry import registry, get_descriptions
+from backend.app.core.registry import registry, get_descriptions
 
 logger = logging.getLogger(__name__)
 

@@ -34,6 +34,22 @@ def memory_write(content: str, category: str = "general") -> str:
 
 
 @tool(tags=["both"])
+def memory_append(content: str, category: str = "general") -> str:
+    """
+    Append content to an existing memory entry (for incremental memory building).
+
+    Args:
+        content: Content to append
+        category: Memory category (same as memory_write)
+
+    Returns:
+        Operation result message
+    """
+    store = get_store()
+    return store.append_memory(content, category)
+
+
+@tool(tags=["both"])
 def memory_search(query: str, top_k: int = 5) -> str:
     """
     Search stored memories for relevant information, ranked by similarity.

@@ -532,6 +532,22 @@ class SessionStore:
                 return "Error: No active session"
             return self._memory_store.write_memory(content, category)
 
+    def append_memory(self, content: str, category: str = "general") -> str:
+        """追加内容到记忆（不添加新时间戳）"""
+        if category in ("preference", "architecture", "tool"):
+            filename_map = {"preference": "USER.md", "architecture": "MEMORY.md", "tool": "TOOLS.md"}
+            filename = filename_map[category]
+            if not self._bootstrap_loader:
+                return "Error: Global memory not initialized"
+            current = self._bootstrap_loader.load_file(filename)
+            updated = f"{current}\n{content}".strip()
+            success = self._bootstrap_loader.update_file(filename, updated)
+            return f"✓ Appended to {filename}" if success else f"✗ Error appending to {filename}"
+        else:
+            if not self._memory_store:
+                return "Error: No active session"
+            return self._memory_store.write_memory(content, category)
+
     def _append_to_global_file(self, filename: str, content: str) -> str:
         """
         追加内容到全局记忆文件

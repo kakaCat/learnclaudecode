@@ -8,8 +8,8 @@ import logging
 import time
 from typing import List
 
-from backend.app.core.agent_runner import AgentRunner
-from backend.app.core.factory import get_factory
+from backend.app.core.execution.agent_runner import AgentRunner
+from backend.app.core.execution.factory import get_factory
 from backend.app.team.state import get_bus, shutdown_requests, tracker_lock, POLL_INTERVAL, IDLE_TIMEOUT
 
 logger = logging.getLogger(__name__)

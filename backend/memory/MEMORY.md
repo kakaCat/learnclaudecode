@@ -208,3 +208,27 @@ parse_relative_date("2026-03-15") # → "2026-03-15"
 - ❌ 只总结"最便宜航班"而不列出所有选项
 - ❌ 只给出价格范围而不列出具体航班
 - ❌ 用概括性描述代替具体数据
+
+## 2026-03-12 14:50:56
+
+当前项目包含294个Python文件，分布在多个目录中：主backend目录、.worktrees/test-worktree目录、scripts目录、tests目录，以及一些版本化的agent文件（v0-v11）。项目结构显示这是一个复杂的AI代理系统，包含多个子系统和模块。
+
+## 2026-03-12 15:04:04
+
+项目名称：Learn Claude Code - AI Agent 开发学习项目
+项目类型：AI Agent 开发学习项目，包含多个版本的实现和倒排索引算法示例
+技术栈：Python, Anthropic SDK, LangChain, DeepSeek
+主要目标：学习和实践 AI Agent 开发，构建类似 Claude Code 的代码助手 Agent
+
+## 2026-03-12 15:04:13
+
+项目结构核心：
+1. 根目录包含多个版本实现文件（v0-v11_agent.py）
+2. backend/ - Agent 后端核心代码，包含模块化架构
+3. scripts/ - 启动脚本和工具脚本
+4. docs/ - 详细文档和架构说明
+5. blog/ - 学习笔记
+6. deploy/ - 部署相关文件
+7. tests/ - 测试文件
+8. .sessions/ - 会话存储目录
+9. .skills/ - 技能定义目录

@@ -76,11 +76,19 @@ class ToolsManager:
 
         def spawn_callback(description: str, prompt: str, subagent_type: str, recursion_limit: int):
             """Spawn subagent 的回调实现"""
-            from backend.app.context.subagent_context import SubagentContext
-            from backend.app.subagents.runner import run_subagent_with_context
+            from backend.app.core.context.sub_context import SubContext
+            from backend.app.core.execution.subagent_runner import SubagentRunner
 
-            sub_context = SubagentContext(main_context.session_key, subagent_type)
-            return run_subagent_with_context(
+            sub_context = SubContext(
+                session_key=main_context.session_key,
+                subagent_type=subagent_type,
+                llm=main_context.llm,
+                session_store=main_context.session_store,
+                tracer=main_context.tracer,
+                recursion_limit=recursion_limit
+            )
+            runner = SubagentRunner()
+            return runner.run(
                 sub_context=sub_context,
                 description=description,
                 prompt=prompt,

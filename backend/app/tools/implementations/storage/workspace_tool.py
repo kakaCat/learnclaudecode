@@ -24,6 +24,19 @@ def workspace_write(path: str, content: str) -> str:
 
 
 @tool(tags=["both"])
+def workspace_append(path: str, content: str) -> str:
+    """Append content to a file in the session workspace. Creates file if it doesn't exist."""
+    try:
+        fp = _resolve(path)
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        with fp.open("a", encoding="utf-8") as f:
+            f.write(content)
+        return f"Appended {len(content)} bytes to workspace/{path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool(tags=["both"])
 def workspace_read(path: str) -> str:
     """Read a file from the session workspace."""
     try:
