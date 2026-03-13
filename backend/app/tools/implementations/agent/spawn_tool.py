@@ -17,11 +17,11 @@ def set_spawn_callback(callback: Callable):
 
 
 @tool(tags=["main"])
-def Task(description: str, prompt: str, subagent_type: str, recursion_limit: int = 100) -> str:
+def spawn_subagent(description: str, prompt: str, subagent_type: str, recursion_limit: int = 100) -> str:
     """Spawn a subagent for a focused subtask. Subagents run in ISOLATED context.
 
     Use for subtasks needing focused exploration or implementation without polluting main context."""
-    logger.info("Task: [%s] %s", subagent_type, description)
+    logger.info("spawn_subagent: [%s] %s", subagent_type, description)
 
     if not registry.has(subagent_type):
         return f"Error: Unknown agent type '{subagent_type}'. Choose from: {registry.list_agents()}"

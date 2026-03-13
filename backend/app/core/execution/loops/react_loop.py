@@ -105,11 +105,12 @@ class ReActLoop(BaseLoop):
         sub_turn = 0
         _pending_calls: dict[str, dict] = {}
 
-        # 创建历史管理器
+        # 创建历史管理器（使用配置的压缩阈值）
         history_manager = ConversationHistory.create_default(
             llm=llm,
             tools=[],
-            max_tokens=CONFIG.MAX_CONTEXT_TOKENS
+            max_tokens=CONFIG.MAX_CONTEXT_TOKENS,
+            compression_threshold=CONFIG.COMPRESSION_THRESHOLD
         )
         initial_messages = [HumanMessage(content=user_prompt)]
         history_manager.set_messages(initial_messages)

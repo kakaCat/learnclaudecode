@@ -16,7 +16,7 @@ from backend.app.core.context.main_context import MainContext
 from backend.app.core.context.sub_context import SubContext
 from backend.app.core.context.team_context import TeamContext
 from backend.app.core.tools.history_manager import HistoryManager
-from backend.app.core.guards.guard_manager import GuardManager
+from backend.app.core.guards import GuardManager
 from backend.app.core.execution.agent_runner import AgentRunner
 
 __all__ = [

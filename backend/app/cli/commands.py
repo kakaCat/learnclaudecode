@@ -14,15 +14,15 @@ from backend.app.cli.session import SessionSelector
 class CommandHandler:
     """Handle CLI commands"""
 
-    def __init__(self, agent, history: list):
+    def __init__(self, agent_holder, history: list):
         """
         Initialize command handler
 
         Args:
-            agent: MainAgentService instance
+            agent_holder: Dict containing agent instance (may be None initially)
             history: Conversation history list
         """
-        self.agent = agent
+        self.agent_holder = agent_holder
         self.history = history
         self.task_service = get_task_service()
 
@@ -55,9 +55,14 @@ class CommandHandler:
 
     async def _handle_compact(self):
         """Handle /compact command"""
+        agent = self.agent_holder["agent"]
+        if not agent:
+            print("⚠️  No active session yet")
+            return
+
         if self.history:
             print("[manual compact]")
-            new_history = auto_compact(self.history, self.agent.llm)
+            new_history = auto_compact(self.history, agent.llm)
             self.history.clear()
             self.history.extend(new_history)
         else:
@@ -85,9 +90,14 @@ class CommandHandler:
         )
 
         if selected:
+            agent = self.agent_holder["agent"]
+            if not agent:
+                print("⚠️  No active session yet")
+                return
+
             self.history.clear()
             self.history.extend(SessionSelector.load_session_history(selected))
-            self.agent.switch_session(selected)
+            agent.switch_session(selected)
             print(f"Resumed session '{selected}' ({len(self.history)} messages)\n")
 
     async def _handle_insight(self):
@@ -118,6 +128,11 @@ class CommandHandler:
         """Handle /insight-llm command"""
         from backend.app.llm_insight import analyze_llm_quality
 
+        agent = self.agent_holder["agent"]
+        if not agent:
+            print("⚠️  No active session yet")
+            return
+
         selected = SessionSelector.select_session(
             title="选择 Session 进行质量分析",
             text="选择要分析的 session (↑↓ 移动, Enter 确认, Esc 取消):"
@@ -136,5 +151,5 @@ class CommandHandler:
         print(f"🧠 分析 session: {selected}")
         print("   使用 LLM 分析调用质量（这会消耗一些 API token）...")
         print()
-        analyze_llm_quality(trace_file, self.agent.llm)
+        analyze_llm_quality(trace_file, agent.llm)
         print()

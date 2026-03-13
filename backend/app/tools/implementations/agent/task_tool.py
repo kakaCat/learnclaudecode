@@ -1,4 +1,5 @@
 import logging
+import re
 
 from backend.app.tools.base import tool
 from backend.app.task import get_task_service, TaskConverter
@@ -7,7 +8,94 @@ logger = logging.getLogger(__name__)
 
 
 @tool(tags=["main", "team"])
-def task_create(subject: str, description: str = "") -> str:
+def task_create_from_plan(subject: str, plan: str) -> str:
+    """从Plan自动创建任务树：解析Plan的步骤，创建父任务和子任务，建立依赖关系。
+
+    使用场景：
+    - 收到Plan Agent的输出后，自动创建任务结构
+    - 一次调用完成所有任务创建和依赖关系设置
+
+    参数：
+    - subject: 父任务主题
+    - plan: Plan Agent的完整输出（markdown格式）
+
+    返回：父任务的JSON + 所有子任务的ID列表
+    """
+    try:
+        service = get_task_service()
+
+        # 1. 创建父任务
+        parent_task = service.create_task(subject, plan=plan)
+
+        # 2. 解析Plan中的步骤
+        steps = _parse_plan_steps(plan)
+
+        # 3. 为每个步骤创建子任务
+        subtask_ids = []
+        prev_task_id = None
+
+        for i, step in enumerate(steps, 1):
+            step_subject = f"Step {i}: {step['name']}"
+            step_desc = f"What: {step.get('what', '')}\nWhy: {step.get('why', '')}"
+
+            subtask = service.create_task(
+                subject=step_subject,
+                description=step_desc
+            )
+
+            # 建立依赖：当前步骤依赖前一个步骤
+            if prev_task_id:
+                service.add_dependency(subtask.id, prev_task_id)
+
+            # 父任务阻塞所有子任务
+            service.add_dependency(parent_task.id, subtask.id)
+
+            subtask_ids.append(subtask.id)
+            prev_task_id = subtask.id
+
+        logger.info(f"Created task tree: parent={parent_task.id}, subtasks={subtask_ids}")
+
+        return f"""✅ 任务树创建成功
+
+父任务: {parent_task.id} - {subject}
+子任务: {len(subtask_ids)}个步骤
+- {', '.join(f'Task {tid}' for tid in subtask_ids)}
+
+使用 task_list 查看所有任务
+使用 task_get {subtask_ids[0]} 查看第一个步骤"""
+
+    except Exception as e:
+        logger.error(f"task_create_from_plan failed: {e}", exc_info=True)
+        return f"Error: {e}"
+
+
+def _parse_plan_steps(plan: str) -> list:
+    """解析Plan的步骤结构"""
+    steps = []
+
+    # 匹配 ### Step N: 标题
+    step_pattern = r'### Step \d+: (.+?)(?=\n|$)'
+    step_matches = re.finditer(step_pattern, plan)
+
+    for match in step_matches:
+        step_name = match.group(1).strip()
+        step_start = match.end()
+
+        # 提取What和Why
+        what_match = re.search(r'- \*\*What\*\*: (.+?)(?=\n|$)', plan[step_start:])
+        why_match = re.search(r'- \*\*Why\*\*: (.+?)(?=\n|$)', plan[step_start:])
+
+        steps.append({
+            'name': step_name,
+            'what': what_match.group(1).strip() if what_match else '',
+            'why': why_match.group(1).strip() if why_match else ''
+        })
+
+    return steps
+
+
+@tool(tags=["main", "team"])
+def task_create(subject: str, description: str = "", plan: str = "") -> str:
     """创建持久化任务，跨会话保留。以 JSON 格式存储在 .tasks/ 目录中。
 
     使用场景：
@@ -16,11 +104,16 @@ def task_create(subject: str, description: str = "") -> str:
     - 需要并行处理多个任务
     - 需要任务依赖关系管理
 
+    参数：
+    - subject: 任务主题
+    - description: 任务描述
+    - plan: 任务执行计划（可选，来自Plan Agent的输出）
+
     如果只是当前会话的临时任务跟踪，使用 TodoWrite 更简单。
     """
     try:
         service = get_task_service()
-        task = service.create_task(subject, description)
+        task = service.create_task(subject, description, plan)
         logger.info("task_create: %s", subject)
         return TaskConverter.to_json(task)
     except Exception as e:

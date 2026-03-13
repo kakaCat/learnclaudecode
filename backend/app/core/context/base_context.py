@@ -21,6 +21,8 @@ class BaseContext(ABC):
     - 定义抽象接口（工具列表、系统提示词）
     """
 
+    _system_prompt_printed = False  # 类级别标志位
+
     def __init__(
         self,
         session_key: str,
@@ -54,3 +56,17 @@ class BaseContext(ABC):
     def get_system_prompt(self) -> str:
         """获取系统提示词（子类实现）"""
         pass
+
+    def get_system_prompt_with_print(self) -> str:
+        """获取系统提示词并在第一次调用时打印"""
+        prompt = self.get_system_prompt()
+
+        if not BaseContext._system_prompt_printed:
+            print("\n" + "="*80)
+            print("📋 系统提示词 (首次加载)")
+            print("="*80)
+            print(prompt)
+            print("="*80 + "\n")
+            BaseContext._system_prompt_printed = True
+
+        return prompt

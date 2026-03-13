@@ -116,10 +116,18 @@ class OODALoop(BaseLoop):
                 cycle=cycle
             )
 
-            # 每 N 个 cycle 压缩一次 observations
-            if cycle > 1 and cycle % CONFIG.OODA_COMPRESSION_INTERVAL == 0:
+            # ✅ 主动检查：估算当前上下文 token 数
+            obs_tokens = sum(len(obs) // 4 for obs in observations)
+            hist_tokens = sum(len(h) // 4 for h in history)
+            total_tokens = obs_tokens + hist_tokens
+
+            if total_tokens > CONFIG.COMPRESSION_THRESHOLD:
+                console.gray(f"   ⚠️  [OODA] Context at {total_tokens} tokens, compressing...")
                 observations = self._compress_observations(
                     llm, system_prompt, observations, subagent_type, llm_config
+                )
+                history = self._compress_history(
+                    llm, system_prompt, history, subagent_type, llm_config
                 )
 
             # ── Phase 1: Observe ──
@@ -390,6 +398,49 @@ class OODALoop(BaseLoop):
 
         console.gray(
             f"   🗜️ [OODA] 压缩 observations: {len(observations)} → 1 条总结"
+        )
+
+        return [f"[总结] {summary_resp.content}"]
+
+    def _compress_history(
+        self,
+        llm: Any,
+        system_prompt: str,
+        history: List[str],
+        subagent_type: str,
+        llm_config: dict,
+    ) -> List[str]:
+        """
+        压缩执行历史列表
+
+        Args:
+            llm: LLM 实例
+            system_prompt: 系统提示词
+            history: 执行历史列表
+            subagent_type: Subagent 类型
+            llm_config: LLM 配置（包含 callbacks）
+
+        Returns:
+            压缩后的历史列表（单条总结）
+        """
+        if len(history) <= CONFIG.OBSERVATION_COMPRESSION_LIMIT:
+            return history
+
+        hist_text = "\n".join(
+            f"- {h[:CONFIG.OBSERVATION_PREVIEW_LENGTH]}"
+            for h in history
+        )
+
+        summary_resp = llm.invoke(
+            [
+                SystemMessage(content="你是一个信息总结助手"),
+                HumanMessage(content=f"请简洁总结以下执行历史，保留关键信息：\n\n{hist_text}")
+            ],
+            config=llm_config
+        )
+
+        console.gray(
+            f"   🗜️ [OODA] 压缩 history: {len(history)} → 1 条总结"
         )
 
         return [f"[总结] {summary_resp.content}"]

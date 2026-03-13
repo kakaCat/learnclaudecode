@@ -49,8 +49,7 @@ if __name__ == "__main__":
     if resume_key:
         agent = MainAgentService(session_key=resume_key, enable_lifecycle=True)
     else:
-        session_key = new_session_key()
-        agent = MainAgentService(session_key=session_key, enable_lifecycle=True)
+        agent = None  # 延迟创建，首次查询时创建
 
     # 启动生命周期管理系统
     from backend.app.reliability import start_lifecycle, get_lifecycle_status
@@ -67,10 +66,12 @@ if __name__ == "__main__":
         history = load_session("main", resume_key)
         print(f"Resumed session '{resume_key}' ({len(history)} messages)\n")
     else:
-        print(f"New session '{agent.context.session_key}'\n")
+        print("Ready (session will be created on first query)\n")
 
     if args:
         # Subagent mode: single run
+        if agent is None:
+            agent = MainAgentService(session_key=new_session_key(), enable_lifecycle=True)
         result = asyncio.run(agent.run(args[0], history))
         print(result)
     else:

@@ -53,8 +53,9 @@ class AgentConfig(ABC):
         if not self.description:
             raise ConfigValidationError("description", "Description cannot be empty")
 
-        if not self.tools:
-            raise ConfigValidationError("tools", "Tools list cannot be empty")
+        # Direct 模式允许空工具列表
+        if not self.tools and self.loop_type != "direct":
+            raise ConfigValidationError("tools", "Tools list cannot be empty (except for direct mode)")
 
         if self.loop_type not in ["react", "ooda", "direct"]:
             raise ConfigValidationError(

@@ -29,6 +29,7 @@ class TaskService:
         self,
         subject: str,
         description: str = "",
+        plan: str = "",
         priority: TaskPriority = TaskPriority.MEDIUM,
         owner: str = "",
         tags: Optional[List[str]] = None
@@ -39,6 +40,7 @@ class TaskService:
         Args:
             subject: 任务主题
             description: 任务描述
+            plan: 任务执行计划
             priority: 任务优先级
             owner: 任务负责人
             tags: 任务标签
@@ -63,6 +65,7 @@ class TaskService:
             owner=owner,
             worktree="",
             tags=tags or [],
+            plan=plan,
             created_at=now,
             updated_at=now
         )

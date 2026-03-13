@@ -6,6 +6,7 @@ ContextFactory - 上下文工厂
 from backend.app.core.context.main_context import MainContext
 from backend.app.core.context.sub_context import SubContext
 from backend.app.core.context.team_context import TeamContext
+from backend.app.core.execution.config import CONFIG
 
 
 class ContextFactory:
@@ -31,9 +32,11 @@ class ContextFactory:
             from backend.app.core.guards.tracer import Tracer
             self._tracer = Tracer()
 
-    def create_main_context(self, session_key: str, recursion_limit: int = 100) -> MainContext:
+    def create_main_context(self, session_key: str, recursion_limit: int = None) -> MainContext:
         """创建主 Agent 上下文"""
         self._ensure_resources()
+        if recursion_limit is None:
+            recursion_limit = CONFIG.MAX_RECURSION_LIMIT
         return MainContext(
             session_key=session_key,
             llm=self._llm,

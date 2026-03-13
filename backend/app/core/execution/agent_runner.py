@@ -12,14 +12,12 @@ AgentRunner - 核心执行器
 - 无状态：每次 run 都是独立的
 - 使用 LangChain Callbacks 自动追踪
 """
-import time
-import json
-from typing import List, Optional
+from typing import List
 from langchain_core.messages import HumanMessage, AIMessage
 
 from backend.app.core.context.base_context import BaseContext
 from backend.app.core.tools.history_manager import HistoryManager
-from backend.app.core.guards.guard_manager import GuardManager
+from backend.app.core.guards import GuardManager
 from backend.app.core.execution.observability import ObservabilityCollector
 from backend.app.core.execution.langchain_callback import ObservabilityCallback
 
@@ -77,23 +75,16 @@ class AgentRunner:
             messages = self.guard_manager.inject_messages(messages)
 
             # 3. 创建 LangChain Callback
+            agent_name = getattr(context, 'agent_name', 'unnamed_agent')
             langchain_callback = ObservabilityCallback(
-                agent_type="main_agent",
+                agent_type=agent_name,
                 enable_console=True,
                 enable_tracer=True
             )
 
-            # 4. 获取 Agent 并执行（传入 callback）
-            from langchain.agents import create_agent
-            agent = create_agent(
-                context.llm,
-                context.get_tools(),
-                system_prompt=context.get_system_prompt()
-            )
-
-            # 5. 执行循环（带追踪）
-            output, tool_calls = await self._execute_loop_with_trace(
-                context, agent, messages, langchain_callback
+            # 4. 执行直接循环（不使用 LangGraph）
+            output, tool_calls = await self._execute_react_loop(
+                context, messages, langchain_callback
             )
 
             # 6. 保存历史
@@ -122,90 +113,133 @@ class AgentRunner:
             self.observer.on_error(str(e))
             raise
 
-    async def _execute_loop_with_trace(self, context, agent, messages, langchain_callback):
+    
+
+    async def _execute_react_loop(self, context, messages, langchain_callback, retry_count=0, max_retries=10):
         """
-        执行 Agent 循环（带追踪）
+        执行 ReAct 循环（使用 LangGraph）
 
-        循环会一直执行，直到 agent 决定停止（不再调用工具，返回最终答案）
-
-        完全信任 Agent 的自主判断，不设置任何步数限制
+        使用新的 create_agent API（LangGraph v1.0+）
+        支持守卫违规后重试
 
         Args:
             context: Agent 上下文
-            agent: LangGraph agent
             messages: 消息列表
             langchain_callback: LangChain Callback Handler
-
-        Returns:
-            (output, tool_calls)
+            retry_count: 当前重试次数
+            max_retries: 最大重试次数
         """
-        output = ""
-        tool_calls_data = []
-        tool_results = []
-        step_counter = 0
+        from langchain.agents import create_agent
 
-        try:
-            # 传入 callback 到 agent 执行配置
+        # 外层循环：处理截断恢复（不占用重试次数）
+        truncation_retry = 0
+        max_truncation_retries = 3
+
+        while truncation_retry <= max_truncation_retries:
+            # 🔍 调试：检查工具
+            tools = context.get_tools()
+            print(f"\n🔍 调试: 工具数={len(tools)}, 工具名={[t.name for t in tools]}")
+
+            # 获取 system prompt
+            system_prompt = context.get_system_prompt()
+
+            # 创建 LangGraph ReAct Agent（使用新 API）
+            agent = create_agent(context.llm, tools, system_prompt=system_prompt)
+
+            output = ""
+            tool_calls_data = []
+            loop_count = 0
+            guard_violation_detected = False
+            truncation_detected = False
+
+            print(f"\n🔄 开始 ReAct 循环（LangGraph）...")
+            if retry_count > 0:
+                print(f"🔁 守卫重试 {retry_count}/{max_retries}")
+            if truncation_retry > 0:
+                print(f"🔁 截断恢复 {truncation_retry}/{max_truncation_retries}")
+            print(f"📋 工具数量: {len(tools)}")
+            print(f"💬 初始消息数: {len(messages)}")
+
+            # 使用 LangGraph 的 astream 循环
             async for step in agent.astream(
                 {"messages": messages},
                 stream_mode="updates",
-                config={
-                    "recursion_limit": context.recursion_limit,
-                    "callbacks": [langchain_callback]
-                }
+                config={"callbacks": [langchain_callback]}
             ):
                 for node, state in step.items():
                     last = state["messages"][-1]
 
-                    # LLM 节点
-                    if node in ("agent", "call_model", "llm", "model"):
-                        step_counter += 1
+                    if node == "agent":
+                        loop_count += 1
+                        print(f"\n--- ReAct Loop {loop_count} ---")
 
-                        # LangChain Callback 已自动追踪 LLM 调用
-                        # 这里只需要处理业务逻辑
+                        # 🔍 调试：检查 LLM 响应
+                        print(f"🔍 响应类型: {type(last)}")
+                        print(f"🔍 content: {last.content[:200] if last.content else 'None'}...")
+                        print(f"🔍 tool_calls: {getattr(last, 'tool_calls', None)}")
 
-                        if getattr(last, "tool_calls", None):
-                            # 记录工具调用
-                            for tc in last.tool_calls:
+                        # 检查工具调用
+                        tool_calls = getattr(last, "tool_calls", None)
+                        if tool_calls:
+                            print(f"🔧 LLM 请求调用 {len(tool_calls)} 个工具")
+                            for tc in tool_calls:
+                                print(f"  → {tc['name']}({list(tc['args'].keys())})")
                                 tool_calls_data.append({"name": tc["name"], "args": tc["args"]})
                         else:
+                            # 没有工具调用，获取最终输出
                             output = last.content or ""
+                            print(f"✅ LLM 返回最终答案 (长度: {len(output)})")
 
-                            # 检查承诺违规
-                            warning = self.guard_manager.check_commitment(last)
-                            if warning:
-                                print(f"⚠️  {warning}")
+                            # 方案2：检测输出截断（长文本但没有工具调用，可能被截断）
+                            if len(output) > 3000 and truncation_retry < max_truncation_retries:
+                                print(f"⚠️  检测到长输出但无工具调用，可能被截断，注入提示继续")
+                                messages.append(HumanMessage(
+                                    content="请直接调用工具完成任务，不要输出大段内容。"
+                                ))
+                                truncation_detected = True
+                                break
 
-                    # 工具节点
+                            # 检查守卫违规（例如：承诺要调用工具但没调用）
+                            injected = self.guard_manager.check_and_inject_after_llm(last, messages)
+                            if injected:
+                                print(f"⚠️  守卫检测到违规，已注入警告消息")
+                                guard_violation_detected = True
+                                break
+
                     elif node == "tools":
-                        step_counter += 1
-
-                        # LangChain Callback 已自动追踪工具调用
-                        # 这里只需要处理业务逻辑
-
-                        tool_name = getattr(last, "name", "unknown")
-                        content = last.content if isinstance(last.content, str) else json.dumps(last.content)
-                        tool_results.append(content[:500])
+                        # 工具执行完成
+                        result = last.content
+                        print(f"  ← 结果: {result[:100]}...")
 
                         # 更新守卫状态
-                        self.guard_manager.on_tool_call(tool_name)
+                        self.guard_manager.on_tool_call(last.name)
 
-        except Exception as e:
-            print(f"❌ Agent 执行出错: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+                # 如果检测到违规，中断外层循环
+                if guard_violation_detected or truncation_detected:
+                    break
 
-        # 如果没有输出，生成补充回答
-        if not output and tool_results:
-            output = await self._generate_fallback(context, tool_results)
+            # 如果检测到截断，继续外层循环（不占用守卫重试次数）
+            if truncation_detected:
+                truncation_retry += 1
+                continue
 
+            # 如果检测到守卫违规且未超过重试次数，递归重试
+            if guard_violation_detected and retry_count < max_retries:
+                print(f"🔁 守卫违规，使用更新后的消息重新执行 ReAct 循环...")
+                return await self._execute_react_loop(
+                    context,
+                    messages,
+                    langchain_callback,
+                    retry_count=retry_count + 1,
+                    max_retries=max_retries
+                )
+
+            # 如果超过最大重试次数
+            if guard_violation_detected and retry_count >= max_retries:
+                print(f"⚠️  已达到最大重试次数 ({max_retries})，停止重试")
+
+            # 正常结束，退出外层循环
+            break
+
+        print(f"\n✅ ReAct 循环结束 (总计 {loop_count} 轮, {len(tool_calls_data)} 次工具调用)\n")
         return output, tool_calls_data
-
-    async def _generate_fallback(self, context, tool_results: List[str]) -> str:
-        """生成补充回答"""
-        tool_context = "\n".join(f"- {r}" for r in tool_results)
-        resp = context.llm.invoke([
-            HumanMessage(content=f"工具结果：\n{tool_context}\n\n请简洁总结。")
-        ])
-        return resp.content

@@ -64,6 +64,23 @@ class OverflowGuard:
                     total += self.estimate_tokens(json.dumps(tc))
         return total
 
+    def _log_full_tool_result(self, tool_call_id: str, content: str):
+        """记录完整工具结果到文件"""
+        from backend.app.session import get_store
+        from datetime import datetime
+
+        store = get_store()
+        session_dir = store.get_session_dir()
+        tool_results_dir = session_dir / "tool_results"
+        tool_results_dir.mkdir(exist_ok=True)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{timestamp}_{tool_call_id[:8]}.txt"
+        filepath = tool_results_dir / filename
+
+        with open(filepath, "w") as f:
+            f.write(content)
+
     def truncate_tool_result(self, result: str, max_fraction: float = 0.3) -> str:
         """截断工具结果，保留前 30%"""
         max_chars = int(self.max_tokens * 4 * max_fraction)
@@ -83,12 +100,15 @@ class OverflowGuard:
         return "\n".join(truncated_lines) + f"\n\n[... truncated {len(result) - current_length} chars]"
 
     def _truncate_large_tool_results(self, messages: List) -> List:
-        """截断大型工具结果"""
+        """截断大型工具结果（先记录完整内容）"""
         new_messages = []
         for msg in messages:
             if isinstance(msg, ToolMessage):
                 content = msg.content
                 if isinstance(content, str) and len(content) > 10000:
+                    # 先记录完整内容
+                    self._log_full_tool_result(msg.tool_call_id, content)
+                    # 再截断
                     truncated = self.truncate_tool_result(content)
                     new_messages.append(ToolMessage(
                         content=truncated,

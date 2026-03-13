@@ -3,7 +3,7 @@ Tool implementations module - 工具实现模块
 
 目录结构：
 - core/: 核心工具（file）
-- agent/: Agent 相关（spawn、task、todo）
+- agent/: Agent 相关（spawn、task）
 - storage/: 存储相关（memory、workspace）
 - execution/: 执行相关（background、skill）
 - integration/: 集成工具（mcp、cdp、curl、explore）
@@ -14,7 +14,7 @@ Tool implementations module - 工具实现模块
 from backend.app.tools.implementations.core import file_tool
 
 # Agent 相关工具 - Agent 协作和任务管理
-from backend.app.tools.implementations.agent import spawn_tool, task_tool, todo_tool
+from backend.app.tools.implementations.agent import spawn_tool, task_tool
 
 # 存储工具 - 数据持久化和工作空间
 from backend.app.tools.implementations.storage import memory_tools, workspace_tool
@@ -35,7 +35,6 @@ __all__ = [
     # agent
     "spawn_tool",
     "task_tool",
-    "todo_tool",
     # storage
     "memory_tools",
     "workspace_tool",

@@ -36,12 +36,14 @@ class Task(BaseModel):
     owner: str = Field(default="", max_length=100, description="任务负责人")
     worktree: str = Field(default="", max_length=100, description="关联的工作树")
     tags: List[str] = Field(default_factory=list, description="任务标签")
+    plan: str = Field(default="", description="任务执行计划")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
     completed_at: Optional[datetime] = Field(default=None, description="完成时间")
 
     class Config:
-        use_enum_values = True
+        # 移除 use_enum_values = True，保持 Enum 类型安全
+        # 序列化时手动调用 .value（在 Converter 中处理）
         json_encoders = {
             datetime: lambda v: v.isoformat()
         }

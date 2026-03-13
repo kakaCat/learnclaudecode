@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 _browser = None
 _browser_available = None  # 缓存可用性检查结果
 _session_store = None  # Session store instance
+_active_tab = None  # 保持活跃的 tab 连接，避免频繁重连
 
 
 def _check_cdp_available() -> tuple[bool, str]:
@@ -164,13 +165,62 @@ def _get_browser():
         else:
             raise RuntimeError(f"{reason}\n\n{_check_cdp_available()[1]}")
 
-    if _browser is None:
+    # 复用现有连接（如果存在）
+    if _browser is not None:
         try:
-            import pychrome
-            _browser = pychrome.Browser(url="http://127.0.0.1:9222")
+            # 简单测试连接是否有效
+            _browser.list_tab()
+            return _browser
         except Exception as e:
-            raise RuntimeError(f"Failed to connect to Chrome: {e}")
+            logger.warning(f"Existing browser connection invalid: {e}")
+            _browser = None
+
+    # 创建新连接
+    try:
+        import pychrome
+        _browser = pychrome.Browser(url="http://127.0.0.1:9222")
+        logger.info("Created new browser connection")
+    except Exception as e:
+        # 连接失败时重置全局变量
+        _browser = None
+        raise RuntimeError(f"Failed to connect to Chrome: {e}")
     return _browser
+
+
+def _get_or_create_tab():
+    """获取或创建活跃的 tab 连接，复用以避免频繁重连"""
+    global _active_tab
+
+    browser = _get_browser()
+    tabs = browser.list_tab()
+
+    if not tabs:
+        raise RuntimeError("No browser tabs available")
+
+    # 如果已有活跃 tab，检查是否仍然有效
+    if _active_tab is not None:
+        try:
+            # 简单的健康检查
+            _active_tab.Runtime.evaluate(expression="1+1", _timeout=2)
+            return _active_tab
+        except Exception as e:
+            logger.warning(f"Active tab unhealthy: {e}")
+            try:
+                _active_tab.stop()
+            except:
+                pass
+            _active_tab = None
+
+    # 创建新的 tab 连接
+    tab = tabs[0]
+    try:
+        tab.start()
+        _active_tab = tab
+        logger.info("Created new tab connection")
+        return tab
+    except Exception as e:
+        logger.error(f"Failed to start tab: {e}")
+        raise RuntimeError(f"Failed to start tab: {e}")
 
 
 def _get_session_store():
@@ -222,7 +272,7 @@ def _get_screenshot_path(output_path: str) -> str:
 
 @tool(tags=["subagent"])
 def cdp_browser(
-    action: Literal["navigate", "screenshot", "execute", "eval", "content", "click", "check_health", "wait_for", "inspect"],
+    action: Literal["navigate", "screenshot", "execute", "eval", "content", "click", "check_health", "wait_for", "inspect", "close"],
     url: str = "",
     script: str = "",
     selector: str = "",
@@ -232,17 +282,29 @@ def cdp_browser(
 ) -> str:
     """Control browser via Chrome DevTools Protocol.
 
+    Connection Management:
+        - Connections are automatically created and reused across calls
+        - No need to manually start/stop for normal operations
+        - Use 'close' action only when you need to explicitly cleanup (e.g., end of task)
+
     Args:
         action: Action to perform
+            Core Actions:
             - navigate: Navigate to URL (auto-waits for load)
-            - screenshot: Take screenshot
-            - execute: Execute JavaScript statements (auto-wrapped in IIFE)
-            - eval: Evaluate JavaScript expression (returns value directly)
             - content: Get page text content
+            - screenshot: Take screenshot
             - click: Click element by CSS selector
-            - check_health: Check if CDP service is available
+
+            JavaScript:
+            - eval: Evaluate JavaScript expression (returns value directly)
+            - execute: Execute JavaScript statements (auto-wrapped in IIFE)
+
+            Utilities:
             - wait_for: Wait for element to appear (requires selector)
             - inspect: Inspect page structure (find classes by keyword)
+            - check_health: Check if CDP service is available
+            - close: Close browser connection and cleanup resources
+
         url: URL to navigate to (for navigate action)
         script: JavaScript to execute (for execute/eval action)
         selector: CSS selector (for click/wait_for action)
@@ -253,6 +315,16 @@ def cdp_browser(
     Returns:
         Result of the action or error message
 
+    Usage Examples:
+        # Simple workflow (no explicit close needed)
+        cdp_browser(action="navigate", url="https://example.com")
+        cdp_browser(action="content")
+
+        # With explicit cleanup (optional)
+        cdp_browser(action="navigate", url="https://example.com")
+        cdp_browser(action="screenshot", output_path="page.png")
+        cdp_browser(action="close")  # Cleanup when done
+
     Common Issues and Solutions:
         1. JavaScript syntax errors:
            - Use 'eval' for expressions (no return needed)
@@ -262,7 +334,11 @@ def cdp_browser(
            - Use 'wait_for' before 'click'
         3. Form interaction fails:
            - Prefer URL construction over form filling
+        4. Connection errors:
+           - Use 'close' to cleanup and reset connections
+           - Connections auto-recover from most errors
     """
+    global _active_tab, _browser
     logger.info(f"cdp_browser: {action}")
 
     # 健康检查
@@ -273,15 +349,36 @@ def cdp_browser(
         else:
             return f"❌ Chrome DevTools Protocol 服务不可用\n\n{reason}"
 
+    # 关闭连接
+    if action == "close":
+        closed_items = []
+
+        if _active_tab is not None:
+            try:
+                import time
+                time.sleep(0.1)  # 让后台线程完成当前消息处理
+                _active_tab.stop()
+                closed_items.append("tab connection")
+            except Exception as e:
+                # 忽略 pychrome 关闭时的 JSON/WebSocket 错误（已知的库bug）
+                if "JSON" not in str(e) and "WebSocket" not in str(e):
+                    logger.debug(f"Failed to stop tab: {e}")
+                closed_items.append("tab connection")
+            _active_tab = None
+
+        if _browser is not None:
+            _browser = None
+            closed_items.append("browser instance")
+
+        if closed_items:
+            return f"✅ Closed: {', '.join(closed_items)}"
+        else:
+            return "✅ No active connections to close"
+
+    tab = None
     try:
-        browser = _get_browser()
-        tabs = browser.list_tab()
-
-        if not tabs:
-            return "Error: No browser tabs available"
-
-        tab = tabs[0]
-        tab.start()
+        # 使用复用的 tab 连接
+        tab = _get_or_create_tab()
 
         # 辅助函数：等待元素出现
         def wait_for_element(sel: str, timeout: int = 10) -> bool:
@@ -455,15 +552,32 @@ def cdp_browser(
         return f"Error: {str(e)}"
     except Exception as e:
         logger.error(f"CDP browser error: {e}", exc_info=True)
+        # 连接错误时，清理状态以便下次重试
+        error_str = str(e)
+        if any(keyword in error_str for keyword in ["WebSocket", "JSON", "Tab has been stopped", "timeout"]):
+            logger.warning(f"Connection error detected ({error_str[:50]}), cleaning up connection")
+            if _active_tab is not None:
+                try:
+                    _active_tab.stop()
+                except:
+                    pass
+                _active_tab = None
         return f"Error: {str(e)}"
+    # 注意：不再在 finally 中关闭 tab，保持连接复用
 
 
 
 def reset_cdp_cache():
     """重置 CDP 可用性缓存（用于测试或重启后）"""
-    global _browser_available, _browser
+    global _browser_available, _browser, _active_tab
     _browser_available = None
     _browser = None
+    if _active_tab is not None:
+        try:
+            _active_tab.stop()
+        except:
+            pass
+        _active_tab = None
 
 
 def parse_relative_date(date_str: str) -> str:

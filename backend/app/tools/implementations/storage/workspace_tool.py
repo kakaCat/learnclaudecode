@@ -12,7 +12,10 @@ def _resolve(path: str):
 
 @tool(tags=["both"])
 def workspace_write(path: str, content: str) -> str:
-    """Write a file to the session workspace (for AI intermediate outputs). Path is relative to workspace/."""
+    """Write a file to the session workspace (for AI intermediate outputs). Path is relative to workspace/.
+
+    IMPORTANT: For large files (>150 lines), use workspace_append multiple times instead.
+    Do NOT output the full content in your response before calling this tool - call the tool directly."""
     try:
         fp = _resolve(path)
         fp.parent.mkdir(parents=True, exist_ok=True)
@@ -25,7 +28,10 @@ def workspace_write(path: str, content: str) -> str:
 
 @tool(tags=["both"])
 def workspace_append(path: str, content: str) -> str:
-    """Append content to a file in the session workspace. Creates file if it doesn't exist."""
+    """Append content to a file in the session workspace. Creates file if it doesn't exist.
+
+    Use this for writing large files in segments (recommended for files >150 lines).
+    Example: workspace_write(path, header) → workspace_append(path, section1) → workspace_append(path, section2)"""
     try:
         fp = _resolve(path)
         fp.parent.mkdir(parents=True, exist_ok=True)

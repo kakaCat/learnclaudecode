@@ -39,7 +39,7 @@ class HistoryManager:
             self.conversation_history = ConversationHistory(
                 llm=context.llm,
                 tools=context.get_tools(),
-                max_tokens=180000
+                max_tokens=70000  # DeepSeek 限制 131K，预留空间给 system/tools/input/output
             )
 
         self.conversation_history.set_messages(history)

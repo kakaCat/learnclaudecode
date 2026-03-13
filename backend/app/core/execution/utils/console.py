@@ -94,11 +94,11 @@ class ConsoleLogger:
 
     # ========== MainAgent 可观测性方法 ==========
 
-    def main_agent_start(self, prompt: str, history_length: int = 0) -> None:
-        """MainAgent 开始执行"""
+    def main_agent_start(self, prompt: str, history_length: int = 0, agent_type: str = "MainAgent") -> None:
+        """Agent 开始执行"""
         if self.enabled:
             print(f"\n{'='*60}")
-            print(f"🤖 MainAgent 开始执行")
+            print(f"🤖 {agent_type} 开始执行")
             print(f"📝 输入: {prompt[:100]}{'...' if len(prompt) > 100 else ''}")
             if history_length > 0:
                 print(f"📚 历史: {history_length} 条消息")

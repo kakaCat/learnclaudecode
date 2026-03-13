@@ -62,14 +62,16 @@ class ObservabilityCollector:
     2. Tracer - JSONL 日志（持久化分析）
     """
 
-    def __init__(self, enable_console: bool = True, enable_tracer: bool = True):
+    def __init__(self, agent_type: str = "main_agent", enable_console: bool = True, enable_tracer: bool = True):
         """
         初始化收集器
 
         Args:
+            agent_type: Agent 类型标识（main_agent 或 subagent.XXX）
             enable_console: 是否启用控制台输出
             enable_tracer: 是否启用 Tracer 日志
         """
+        self.agent_type = agent_type
         self.enable_console = enable_console
         self.enable_tracer = enable_tracer
         self.tracer = Tracer()
@@ -100,12 +102,14 @@ class ObservabilityCollector:
 
         # Console 输出
         if self.enable_console:
-            console.main_agent_start(prompt, history_length)
+            # 根据 agent_type 显示不同的名称
+            display_name = "MainAgent" if self.agent_type == "main_agent" else f"Subagent[{self.agent_type.replace('subagent.', '')}]"
+            console.main_agent_start(prompt, history_length, agent_type=display_name)
 
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.start",
+                f"{self.agent_type}.start",
                 prompt=prompt[:200],  # 限制长度
                 history_length=history_length
             )
@@ -164,7 +168,7 @@ class ObservabilityCollector:
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.llm_call",
+                f"{self.agent_type}.llm_call",
                 step=step,
                 content=content[:200] if content else "",
                 tool_calls=[
@@ -218,7 +222,7 @@ class ObservabilityCollector:
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.tool_call",
+                f"{self.agent_type}.tool_call",
                 step=step,
                 tool=tool_name,
                 args=list(tool_args.keys()),
@@ -273,7 +277,7 @@ class ObservabilityCollector:
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.subagent_call",
+                f"{self.agent_type}.subagent_call",
                 step=step,
                 subagent_type=subagent_type,
                 description=description[:100],
@@ -322,7 +326,7 @@ class ObservabilityCollector:
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.end",
+                f"{self.agent_type}.end",
                 output=output[:200],
                 output_length=len(output),
                 **metrics_dict
@@ -344,7 +348,7 @@ class ObservabilityCollector:
         # Tracer 日志
         if self.enable_tracer:
             self.tracer.emit(
-                "main_agent.error",
+                f"{self.agent_type}.error",
                 error_type=type(error).__name__,
                 error_message=str(error)
             )

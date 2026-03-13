@@ -42,14 +42,15 @@ class ConversationHistory:
         cls,
         llm: ChatOpenAI,
         tools: List,
-        max_tokens: int = 180000
+        max_tokens: int = 180000,
+        compression_threshold: int = None
     ) -> "ConversationHistory":
         """
         创建带默认策略的历史管理器
 
         默认策略：
         - MicroCompactionStrategy: 移除旧的 ToolMessage 内容
-        - AutoCompactionStrategy: 超过 50000 tokens 时压缩
+        - AutoCompactionStrategy: 超过阈值时压缩
         - ManualCompactionStrategy: 响应 /compact 命令
         """
         from backend.app.memory.compaction_strategies import (
@@ -57,10 +58,14 @@ class ConversationHistory:
             AutoCompactionStrategy,
             ManualCompactionStrategy
         )
+        from backend.app.config import COMPACTION_THRESHOLD
+
+        if compression_threshold is None:
+            compression_threshold = COMPACTION_THRESHOLD
 
         history = cls(llm=llm, tools=tools, max_tokens=max_tokens)
         history.add_strategy(MicroCompactionStrategy())
-        history.add_strategy(AutoCompactionStrategy(threshold=50000))
+        history.add_strategy(AutoCompactionStrategy(threshold=compression_threshold))
         history.add_strategy(ManualCompactionStrategy())
         return history
 

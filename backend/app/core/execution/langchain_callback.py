@@ -91,7 +91,7 @@ class ObservabilityCallback(BaseCallbackHandler):
                 event_name,
                 run_id=str(run_id),
                 parent_run_id=str(parent_run_id) if parent_run_id else None,
-                model=serialized.get("name"),
+                model=DEEPSEEK_MODEL,  # 使用实际模型名称而不是类名
                 prompt_count=len(prompts),
                 span_id=self.span_id
             )

@@ -11,11 +11,11 @@ class SubagentConfig:
     """Subagent 全局配置"""
 
     # 上下文管理
-    MAX_CONTEXT_TOKENS: int = 100_000
-    """Subagent 最大上下文 token 数"""
+    MAX_CONTEXT_TOKENS: int = 128_000
+    """Subagent 最大上下文 token 数（对齐模型限制）"""
 
-    COMPRESSION_THRESHOLD: int = 80_000
-    """触发压缩的 token 阈值"""
+    COMPRESSION_THRESHOLD: int = 102_000
+    """触发压缩的 token 阈值（80% 模型限制）"""
 
     # OODA 循环配置
     MAX_OODA_CYCLES: int = 6
@@ -28,8 +28,8 @@ class SubagentConfig:
     """OODA 循环压缩间隔（每 N 个 cycle 压缩一次）"""
 
     # ReAct 循环配置
-    MAX_RECURSION_LIMIT: int = 100
-    """ReAct 循环最大递归深度"""
+    MAX_RECURSION_LIMIT: int = 1000
+    """ReAct 循环最大递归深度（设置为 1000 以应对复杂任务）"""
 
     # Prompt 管理
     MAX_PROMPT_TOKENS: int = 100_000

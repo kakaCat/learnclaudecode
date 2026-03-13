@@ -91,7 +91,9 @@ class ToolRegistry:
         if impl_dir.exists():
             self._scan_implementations(impl_dir, package, skip)
 
-        print(f"✅ 已加载 {len(self._tools)} 个工具")
+        # 按 scope 分组统计
+        scope_counts = {scope: len(names) for scope, names in self._scopes.items() if names}
+        print(f"✅ 已加载 {len(self._tools)} 个工具: {scope_counts}")
         return self
 
     def _scan_implementations(self, impl_dir: Path, package: str, skip: Set[str]):
