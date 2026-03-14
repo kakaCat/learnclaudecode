@@ -72,7 +72,7 @@ class ToolsManager:
             main_context: MainAgentContext 实例（用于创建 Subagent）
         """
         # 注入 spawn 回调函数
-        from backend.app.tools.implementations.agent.spawn_tool import set_spawn_callback, Task
+        from backend.app.tools.implementations.agent.spawn_tool import set_spawn_callback
 
         def spawn_callback(description: str, prompt: str, subagent_type: str, recursion_limit: int):
             """Spawn subagent 的回调实现"""

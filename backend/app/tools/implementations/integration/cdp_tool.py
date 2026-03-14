@@ -396,15 +396,18 @@ def cdp_browser(
         if action == "navigate":
             if not url:
                 return "Error: url required for navigate"
-            tab.Page.navigate(url=url, _timeout=15)
-            # 等待页面加载完成
-            tab.wait(2)
-            # 检查 document.readyState
-            result = tab.Runtime.evaluate(expression="document.readyState")
-            state = result.get("result", {}).get("value", "")
-            if state != "complete":
-                tab.wait(wait_time)
-            return f"✅ Navigated to {url}"
+            try:
+                tab.Page.navigate(url=url, _timeout=30)  # 增加到30秒
+                # 等待页面加载完成
+                tab.wait(3)
+                # 检查 document.readyState
+                result = tab.Runtime.evaluate(expression="document.readyState")
+                state = result.get("result", {}).get("value", "")
+                if state != "complete":
+                    tab.wait(wait_time)
+                return f"✅ Navigated to {url}"
+            except Exception as e:
+                return f"Error: Navigation failed - {str(e)}\nTip: 复杂网站可能需要更长加载时间或被反爬虫拦截"
 
         elif action == "screenshot":
             # 获取最终保存路径（可能是 workspace）

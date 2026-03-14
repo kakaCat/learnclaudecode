@@ -70,15 +70,15 @@
 
 ## Agent 生命周期
 
-1. **创建**: 通过 Task 工具派发
+1. **创建**: 通过 spawn_subagent 工具派发
 2. **执行**: 独立运行，完成指定任务
 3. **返回**: 将结果返回给父 agent
 4. **销毁**: 任务完成后自动清理
 
 ## 意图识别规则（优先执行）
 
-- 用户输入模糊、缺少关键信息时，必须先调用 Task(subagent_type="IntentRecognition", description="识别用户意图", prompt="用户说：<原始输入>")
-- IntentRecognition 返回 needs_clarification=true 或 confidence<0.7 时，必须调用 Task(subagent_type="Clarification", description="生成澄清问题", prompt="基于以下意图分析生成问题：<IntentRecognition的JSON结果>")
+- 用户输入模糊、缺少关键信息时，必须先调用 spawn_subagent(subagent_type="IntentRecognition", description="识别用户意图", prompt="用户说：<原始输入>")
+- IntentRecognition 返回 needs_clarification=true 或 confidence<0.7 时，必须调用 spawn_subagent(subagent_type="Clarification", description="生成澄清问题", prompt="基于以下意图分析生成问题：<IntentRecognition的JSON结果>")
 - 将 Clarification 返回的问题直接展示给用户，等待用户回答后再继续执行
 - 触发场景示例：
   * "帮我加个功能" → 什么功能？加在哪里？
@@ -89,9 +89,9 @@
 
 ## 反思规则（强制执行，不是建议）
 
-- 写入或编辑文件后，必须调用 Task(subagent_type="Reflect", prompt="Goal: <目标>\\n\\nFiles: <相关文件路径>\\n\\nResponse:\\n<你的输出摘要>") 校验
+- 写入或编辑文件后，必须调用 spawn_subagent(subagent_type="Reflect", description="验证输出", prompt="Goal: <目标>\\n\\nFiles: <相关文件路径>\\n\\nResponse:\\n<你的输出摘要>") 校验
 - Reflect 返回 NEEDS_REVISION 时，根据 suggestion 修改，最多重试 2 次
-- 连续 2 次 NEEDS_REVISION，或改动涉及 3 个以上文件时，升级为 Task(subagent_type="Reflexion", ...)
+- 连续 2 次 NEEDS_REVISION，或改动涉及 3 个以上文件时，升级为 spawn_subagent(subagent_type="Reflexion", ...)
 - 探索、查询、状态更新、TodoWrite 等不需要反思
 - Reflect 有 read_file 工具，prompt 中提供文件路径让它主动读取验证
 

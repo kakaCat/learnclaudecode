@@ -33,17 +33,18 @@ class HistoryManager:
         Returns:
             准备好的消息列表
         """
-        # 1. 压缩历史
+        # 1. 压缩历史（启用三层压缩机制）
         if self.conversation_history is None:
             from backend.app.memory import ConversationHistory
-            self.conversation_history = ConversationHistory(
+            self.conversation_history = ConversationHistory.create_default(
                 llm=context.llm,
                 tools=context.get_tools(),
-                max_tokens=70000  # DeepSeek 限制 131K，预留空间给 system/tools/input/output
+                max_tokens=40000,  # DeepSeek 总限制 131K，历史最多 40K，预留 91K 给 system/tools/input/output
+                compression_threshold=25000  # Layer 2: 25K tokens 时触发自动压缩
             )
 
         self.conversation_history.set_messages(history)
-        self.conversation_history.apply_strategies()
+        self.conversation_history.apply_strategies()  # 应用三层策略
         compressed = self.conversation_history.get_messages()
 
         # 2. 召回记忆

@@ -117,128 +117,131 @@ class AgentRunner:
 
     async def _execute_react_loop(self, context, messages, langchain_callback, retry_count=0, max_retries=10):
         """
-        执行 ReAct 循环（使用 LangGraph）
+        执行 ReAct 循环（使用三层循环结构）
 
-        使用新的 create_agent API（LangGraph v1.0+）
-        支持守卫违规后重试
+        三层循环：
+        1. 守卫重试循环（最外层）
+        2. 截断恢复循环（中层）
+        3. agent.astream 循环（内层）
 
         Args:
             context: Agent 上下文
             messages: 消息列表
             langchain_callback: LangChain Callback Handler
-            retry_count: 当前重试次数
-            max_retries: 最大重试次数
+            retry_count: 保留参数兼容性（实际使用内部计数）
+            max_retries: 最大守卫重试次数
         """
         from langchain.agents import create_agent
 
-        # 外层循环：处理截断恢复（不占用重试次数）
-        truncation_retry = 0
-        max_truncation_retries = 3
+        # 获取资源（只获取一次）
+        system_prompt = context.get_system_prompt()
+        tools = context.get_tools()
+        print(f"\n🔍 工具数={len(tools)}, 工具名={[t.name for t in tools]}")
 
-        while truncation_retry <= max_truncation_retries:
-            # 🔍 调试：检查工具
-            tools = context.get_tools()
-            print(f"\n🔍 调试: 工具数={len(tools)}, 工具名={[t.name for t in tools]}")
+        output = ""
+        tool_calls_data = []
+        loop_count = 0
 
-            # 获取 system prompt
-            system_prompt = context.get_system_prompt()
+        # 守卫重试循环（最外层）
+        guard_retry = 0
+        while guard_retry <= max_retries:
+            # 截断恢复循环（中层）
+            truncation_retry = 0
+            max_truncation_retries = 3
 
-            # 创建 LangGraph ReAct Agent（使用新 API）
-            agent = create_agent(context.llm, tools, system_prompt=system_prompt)
+            while truncation_retry <= max_truncation_retries:
+                # 创建 agent
+                agent = create_agent(context.llm, tools, system_prompt=system_prompt)
 
-            output = ""
-            tool_calls_data = []
-            loop_count = 0
-            guard_violation_detected = False
-            truncation_detected = False
+                guard_violation_detected = False
+                truncation_detected = False
 
-            print(f"\n🔄 开始 ReAct 循环（LangGraph）...")
-            if retry_count > 0:
-                print(f"🔁 守卫重试 {retry_count}/{max_retries}")
-            if truncation_retry > 0:
-                print(f"🔁 截断恢复 {truncation_retry}/{max_truncation_retries}")
-            print(f"📋 工具数量: {len(tools)}")
-            print(f"💬 初始消息数: {len(messages)}")
+                print(f"\n🔄 开始 ReAct 循环...")
+                if guard_retry > 0:
+                    print(f"🔁 守卫重试 {guard_retry}/{max_retries}")
+                if truncation_retry > 0:
+                    print(f"🔁 截断恢复 {truncation_retry}/{max_truncation_retries}")
+                print(f"📋 工具数量: {len(tools)}")
+                print(f"💬 初始消息数: {len(messages)}")
 
-            # 使用 LangGraph 的 astream 循环
-            async for step in agent.astream(
-                {"messages": messages},
-                stream_mode="updates",
-                config={"callbacks": [langchain_callback]}
-            ):
-                for node, state in step.items():
-                    last = state["messages"][-1]
+                # agent.astream 循环（内层）
+                async for step in agent.astream(
+                    {"messages": messages},
+                    stream_mode="updates",
+                    config={
+                        "callbacks": [langchain_callback],
+                        "recursion_limit": context.recursion_limit
+                    }
+                ):
+                    for node, state in step.items():
+                        last = state["messages"][-1]
 
-                    if node == "agent":
-                        loop_count += 1
-                        print(f"\n--- ReAct Loop {loop_count} ---")
+                        if node == "agent":
+                            loop_count += 1
+                            print(f"\n--- ReAct Loop {loop_count} ---")
+                            print(f"🔍 响应类型: {type(last)}")
+                            print(f"🔍 content: {last.content[:200] if last.content else 'None'}...")
+                            print(f"🔍 tool_calls: {getattr(last, 'tool_calls', None)}")
 
-                        # 🔍 调试：检查 LLM 响应
-                        print(f"🔍 响应类型: {type(last)}")
-                        print(f"🔍 content: {last.content[:200] if last.content else 'None'}...")
-                        print(f"🔍 tool_calls: {getattr(last, 'tool_calls', None)}")
+                            tool_calls = getattr(last, "tool_calls", None)
+                            if tool_calls:
+                                print(f"🔧 LLM 请求调用 {len(tool_calls)} 个工具")
+                                for tc in tool_calls:
+                                    print(f"  → {tc['name']}({list(tc['args'].keys())})")
+                                    tool_calls_data.append({"name": tc["name"], "args": tc["args"]})
+                            else:
+                                output = last.content or ""
+                                print(f"✅ LLM 返回最终答案 (长度: {len(output)})")
 
-                        # 检查工具调用
-                        tool_calls = getattr(last, "tool_calls", None)
-                        if tool_calls:
-                            print(f"🔧 LLM 请求调用 {len(tool_calls)} 个工具")
-                            for tc in tool_calls:
-                                print(f"  → {tc['name']}({list(tc['args'].keys())})")
-                                tool_calls_data.append({"name": tc["name"], "args": tc["args"]})
-                        else:
-                            # 没有工具调用，获取最终输出
-                            output = last.content or ""
-                            print(f"✅ LLM 返回最终答案 (长度: {len(output)})")
+                                # 添加到 messages
+                                messages.append(last)
 
-                            # 方案2：检测输出截断（长文本但没有工具调用，可能被截断）
-                            if len(output) > 3000 and truncation_retry < max_truncation_retries:
-                                print(f"⚠️  检测到长输出但无工具调用，可能被截断，注入提示继续")
-                                messages.append(HumanMessage(
-                                    content="请直接调用工具完成任务，不要输出大段内容。"
-                                ))
-                                truncation_detected = True
-                                break
+                                # 检测截断
+                                if len(output) > 3000 and truncation_retry < max_truncation_retries:
+                                    print(f"⚠️  检测到长输出，可能被截断")
+                                    messages.append(HumanMessage(
+                                        content="请直接调用工具完成任务，不要输出大段内容。"
+                                    ))
+                                    truncation_detected = True
+                                    break
 
-                            # 检查守卫违规（例如：承诺要调用工具但没调用）
-                            injected = self.guard_manager.check_and_inject_after_llm(last, messages)
-                            if injected:
-                                print(f"⚠️  守卫检测到违规，已注入警告消息")
-                                guard_violation_detected = True
-                                break
+                                # 检查守卫违规
+                                injected = self.guard_manager.check_and_inject_after_llm(last, messages)
+                                if injected:
+                                    print(f"⚠️  守卫检测到违规")
+                                    guard_violation_detected = True
+                                    break
 
-                    elif node == "tools":
-                        # 工具执行完成
-                        result = last.content
-                        print(f"  ← 结果: {result[:100]}...")
+                        elif node == "tools":
+                            result = last.content
+                            print(f"  ← 结果: {result[:100]}...")
+                            self.guard_manager.on_tool_call(last.name)
 
-                        # 更新守卫状态
-                        self.guard_manager.on_tool_call(last.name)
+                    if guard_violation_detected or truncation_detected:
+                        break
 
-                # 如果检测到违规，中断外层循环
-                if guard_violation_detected or truncation_detected:
+                # 截断：继续中层循环
+                if truncation_detected:
+                    truncation_retry += 1
+                    continue
+
+                # 守卫违规：break 到外层循环
+                if guard_violation_detected:
                     break
 
-            # 如果检测到截断，继续外层循环（不占用守卫重试次数）
-            if truncation_detected:
-                truncation_retry += 1
+                # 正常结束
+                print(f"\n✅ ReAct 循环结束 (总计 {loop_count} 轮, {len(tool_calls_data)} 次工具调用)\n")
+                return output, tool_calls_data
+
+            # 守卫违规：继续外层循环
+            if guard_violation_detected:
+                guard_retry += 1
+                if guard_retry > max_retries:
+                    print(f"⚠️  已达最大守卫重试次数 ({max_retries})")
+                    break
+                print(f"🔁 守卫违规，继续重试...")
                 continue
 
-            # 如果检测到守卫违规且未超过重试次数，递归重试
-            if guard_violation_detected and retry_count < max_retries:
-                print(f"🔁 守卫违规，使用更新后的消息重新执行 ReAct 循环...")
-                return await self._execute_react_loop(
-                    context,
-                    messages,
-                    langchain_callback,
-                    retry_count=retry_count + 1,
-                    max_retries=max_retries
-                )
-
-            # 如果超过最大重试次数
-            if guard_violation_detected and retry_count >= max_retries:
-                print(f"⚠️  已达到最大重试次数 ({max_retries})，停止重试")
-
-            # 正常结束，退出外层循环
             break
 
         print(f"\n✅ ReAct 循环结束 (总计 {loop_count} 轮, {len(tool_calls_data)} 次工具调用)\n")

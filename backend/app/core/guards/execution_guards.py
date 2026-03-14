@@ -36,6 +36,81 @@ class BaseGuard:
         pass
 
 
+class EmptyResponseGuard(BaseGuard):
+    """
+    检测 LLM 返回空响应或无意义响应的情况
+
+    违规模式：
+    - 没有工具调用，且输出内容过短（< 50 字符）
+    - 没有工具调用，且输出只是重复用户问题
+    - 没有工具调用，且输出是"好的"、"明白"等无实质内容
+    """
+
+    MEANINGLESS_PATTERNS = [
+        r'^好的[。！]*$',
+        r'^明白[了。！]*$',
+        r'^收到[。！]*$',
+        r'^了解[。！]*$',
+        r'^OK[。！]*$',
+        r'^.\s*$',  # 只有标点或空白
+    ]
+
+    def __init__(self):
+        self.patterns = [re.compile(p, re.IGNORECASE) for p in self.MEANINGLESS_PATTERNS]
+        self.violation_count = 0
+        self.max_violations = 2  # 最多警告 2 次
+
+    def check_violation(self, message: AIMessage, has_tool_calls: bool) -> Optional[str]:
+        """
+        检查是否是空响应
+
+        Args:
+            message: AI 消息
+            has_tool_calls: 是否有工具调用
+
+        Returns:
+            如果违规，返回警告信息；否则返回 None
+        """
+        # 如果有工具调用，不检查
+        if has_tool_calls:
+            return None
+
+        # 如果已经警告过太多次，停止检查
+        if self.violation_count >= self.max_violations:
+            return None
+
+        content = message.content or ""
+        content_stripped = content.strip()
+
+        # 检查1：内容过短
+        if len(content_stripped) < 50:
+            # 检查是否是无意义响应
+            for pattern in self.patterns:
+                if pattern.match(content_stripped):
+                    self.violation_count += 1
+                    return (
+                        "⚠️ 检测到空响应违规：你只回复了简短确认，但没有实际执行任何操作。\n"
+                        "请立即调用工具完成任务，不要只是说'好的'或'明白'。"
+                    )
+
+        # 检查2：内容很短但不是无意义（可能是真的完成了）
+        if len(content_stripped) < 20 and not any(
+            keyword in content_stripped
+            for keyword in ['完成', '已', '成功', '创建', '生成', '修改']
+        ):
+            self.violation_count += 1
+            return (
+                "⚠️ 检测到响应过短：你的回复只有几个字，但没有调用任何工具。\n"
+                "如果任务已完成，请说明完成了什么；如果未完成，请调用工具继续执行。"
+            )
+
+        return None
+
+    def reset(self):
+        """重置状态"""
+        self.violation_count = 0
+
+
 class ActionCommitmentGuard(BaseGuard):
     """
     检测 Agent 是否违反 "先做后说" 原则
@@ -201,10 +276,12 @@ class GuardManager:
 
     def __init__(self):
         self.action_commitment = ActionCommitmentGuard()
+        self.empty_response = EmptyResponseGuard()
         self.reflection_gate = ReflectionGatekeeper()
 
         self.all_guards = [
             self.action_commitment,
+            self.empty_response,
             self.reflection_gate,
         ]
 
@@ -244,6 +321,17 @@ class GuardManager:
         Returns:
             True 如果注入了警告（需要继续循环），False 否则
         """
+        # 检查是否有工具调用
+        has_tool_calls = bool(getattr(ai_message, 'tool_calls', None))
+
+        # 检查 EmptyResponseGuard（优先检查，因为更严重）
+        empty_violation = self.empty_response.check_violation(ai_message, has_tool_calls)
+        if empty_violation:
+            warning_msg = HumanMessage(content=f"<system-warning>\n{empty_violation}\n</system-warning>")
+            messages.append(warning_msg)
+            print(f"⚠️  [EmptyResponseGuard] {empty_violation}")
+            return True
+
         # 检查 ActionCommitmentGuard
         violation = self.action_commitment.check_violation(ai_message)
         if violation:
