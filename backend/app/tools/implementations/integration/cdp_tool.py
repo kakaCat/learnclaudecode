@@ -270,7 +270,7 @@ def _get_screenshot_path(output_path: str) -> str:
     return output_path
 
 
-@tool(tags=["subagent"])
+@tool(tags=["both"])
 def cdp_browser(
     action: Literal["navigate", "screenshot", "execute", "eval", "content", "click", "check_health", "wait_for", "inspect", "close"],
     url: str = "",

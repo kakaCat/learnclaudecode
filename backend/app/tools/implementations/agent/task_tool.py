@@ -1,3 +1,14 @@
+"""
+任务管理工具
+
+模块级配置：所有工具默认 tags=["main", "team"], category="agent"
+"""
+__tool_config__ = {
+    "tags": ["main", "team"],
+    "category": "agent",
+    "enabled": False 
+}
+
 import logging
 import re
 
@@ -7,7 +18,7 @@ from backend.app.task import get_task_service, TaskConverter
 logger = logging.getLogger(__name__)
 
 
-@tool(tags=["main", "team"])
+@tool()  # 继承模块配置
 def task_create_from_plan(subject: str, plan: str) -> str:
     """从Plan自动创建任务树：解析Plan的步骤，创建父任务和子任务，建立依赖关系。
 
@@ -94,7 +105,7 @@ def _parse_plan_steps(plan: str) -> list:
     return steps
 
 
-@tool(tags=["main", "team"])
+@tool()  # 继承模块配置
 def task_create(subject: str, description: str = "", plan: str = "") -> str:
     """创建持久化任务，跨会话保留。以 JSON 格式存储在 .tasks/ 目录中。
 
@@ -120,7 +131,7 @@ def task_create(subject: str, description: str = "", plan: str = "") -> str:
         return f"Error: {e}"
 
 
-@tool(tags=["main", "team"])
+@tool()  # 继承模块配置
 def task_get(task_id: int) -> str:
     """根据 ID 获取持久化任务的完整详情。"""
     try:
@@ -131,7 +142,7 @@ def task_get(task_id: int) -> str:
         return f"Error: {e}"
 
 
-@tool(tags=["main", "team"])
+@tool()  # 继承模块配置
 def task_update(task_id: int, status: str = None,
                 addBlockedBy: list = None, addBlocks: list = None) -> str:
     """更新持久化任务的状态（pending|in_progress|completed）或依赖关系。
@@ -164,7 +175,7 @@ def task_update(task_id: int, status: str = None,
         return f"Error: {e}"
 
 
-@tool(tags=["main", "team"])
+@tool()  # 继承模块配置
 def task_list() -> str:
     """列出所有持久化任务及其状态摘要。"""
     try:

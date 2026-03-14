@@ -3,12 +3,25 @@
 
 包含外部服务和协议集成工具：
 - cdp_tool: Chrome DevTools Protocol 集成
-- curl_tool: HTTP 请求工具
-- explore_tool: 代码库探索工具
+- browser_tool: Browser Use AI 浏览器控制
 """
 
-from . import cdp_tool
-from . import curl_tool
-from . import explore_tool
+from .cdp_tool import cdp_browser
+from .browser_tool import (
+    browser_navigate,
+    browser_click,
+    browser_input,
+    browser_extract,
+    browser_screenshot,
+    browser_get_page_content,
+)
 
-__all__ = ["cdp_tool", "curl_tool", "explore_tool"]
+__all__ = [
+    "cdp_browser",
+    "browser_navigate",
+    "browser_click",
+    "browser_input",
+    "browser_extract",
+    "browser_screenshot",
+    "browser_get_page_content",
+]

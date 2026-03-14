@@ -6,6 +6,11 @@ from backend.app.skills import SKILL_LOADER
 
 logger = logging.getLogger(__name__)
 
+__tool_config__ = {
+    "tags": ["main", "team"],
+    "category": "execution",
+    "enabled": False 
+}
 
 @tool(tags=["both"])
 def load_skill(name: str) -> str:

@@ -1,6 +1,11 @@
 from backend.app.tools.base import tool
 from backend.app.session import get_workspace_dir
 
+__tool_config__ = {
+    "tags": ["main", "team"],
+    "category": "storage",
+    "enabled": False 
+}
 
 def _resolve(path: str):
     ws = get_workspace_dir().resolve()
@@ -10,7 +15,7 @@ def _resolve(path: str):
     return fp
 
 
-@tool(tags=["both"])
+@tool()
 def workspace_write(path: str, content: str) -> str:
     """Write a file to the session workspace (for AI intermediate outputs). Path is relative to workspace/.
 
@@ -26,7 +31,7 @@ def workspace_write(path: str, content: str) -> str:
 
 
 
-@tool(tags=["both"])
+@tool()
 def workspace_append(path: str, content: str) -> str:
     """Append content to a file in the session workspace. Creates file if it doesn't exist.
 
@@ -42,7 +47,7 @@ def workspace_append(path: str, content: str) -> str:
         return f"Error: {e}"
 
 
-@tool(tags=["both"])
+@tool()
 def workspace_read(path: str) -> str:
     """Read a file from the session workspace."""
     try:
@@ -52,7 +57,7 @@ def workspace_read(path: str) -> str:
 
 
 
-@tool(tags=["both"])
+@tool()
 def workspace_list() -> str:
     """List all files in the session workspace."""
     try:

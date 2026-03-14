@@ -10,8 +10,13 @@ from backend.app.tools.base import tool
 
 logger = logging.getLogger(__name__)
 
+__tool_config__ = {
+    "tags": ["main", "team"],
+    "category": "system",
+    "enabled": False 
+}
 
-@tool(tags=["main"])
+@tool()
 def spawn_teammate(name: str, role: str, prompt: str) -> str:
     """Spawn a persistent teammate agent in its own thread. The teammate can use tools and communicate via inboxes. Only MainAgent can spawn teammates."""
     from backend.app.team import get_team
@@ -20,7 +25,7 @@ def spawn_teammate(name: str, role: str, prompt: str) -> str:
 
 
 
-@tool(tags=["both"])
+@tool()
 def list_teammates() -> str:
     """List all teammates with their name, role, and current status."""
     from backend.app.team import get_team
@@ -28,7 +33,7 @@ def list_teammates() -> str:
 
 
 
-@tool(tags=["both"])
+@tool()
 def send_message(to: str, content: str, msg_type: str = "message") -> str:
     """Send a message to a teammate's inbox. msg_type: message, broadcast, shutdown_request, shutdown_response, plan_approval_response."""
     from backend.app.team import get_bus
@@ -37,7 +42,7 @@ def send_message(to: str, content: str, msg_type: str = "message") -> str:
 
 
 
-@tool(tags=["both"])
+@tool()
 def read_inbox() -> str:
     """Read and drain the lead's inbox. Returns all pending messages as JSON."""
     from backend.app.team import get_bus

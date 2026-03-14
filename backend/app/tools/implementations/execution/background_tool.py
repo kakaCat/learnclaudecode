@@ -5,6 +5,11 @@ from backend.app.background import run, check, run_agent
 # 全局回调（由 agent 注入）
 _get_tools_callback: Optional[Callable] = None
 
+__tool_config__ = {
+    "tags": ["main", "team"],
+    "category": "execution",
+    "enabled": False 
+}
 
 def set_get_tools_callback(callback: Callable):
     """注入获取工具列表的回调函数"""

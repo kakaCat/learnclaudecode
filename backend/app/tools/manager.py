@@ -1,7 +1,7 @@
 from __future__ import annotations
 import importlib
-import pkgutil
 from pathlib import Path
+from backend.app.tools.base import get_registered_tools
 
 
 class ToolsManager:
@@ -23,46 +23,83 @@ class ToolsManager:
             self._tools[t.name] = t
         return self
 
-    def auto_discover(self, tools_dir: Path, skip: set = None) -> "ToolsManager":
-        from langchain_core.tools import BaseTool
-        skip = (skip or set()) | {"spawn_tool", "__init__", "mcp_tool", "cdp_tool"}
-        package = "backend.app.tools"
 
+    def auto_discover(self, tools_dir: Path, skip: set = None) -> "ToolsManager":
+        """
+        自动扫描和加载工具（约定优于配置）
+
+        扫描所有 @tool 装饰的工具并自动加载
+        """
         print("=" * 80)
         print("🔧 ToolsManager.auto_discover()")
         print("=" * 80)
 
-        # Scan main tools directory
-        print(f"📂 Scanning: {tools_dir}")
-        for info in pkgutil.iter_modules([str(tools_dir)]):
-            if info.name in skip:
-                print(f"⏭️  Skip: {info.name}")
-                continue
-            module = importlib.import_module(f"{package}.{info.name}")
-            for attr in dir(module):
-                obj = getattr(module, attr)
-                if isinstance(obj, BaseTool):
-                    self._tools[obj.name] = obj
-                    print(f"✅ Loaded: {obj.name} (from {info.name})")
+        # 1. 扫描所有模块（触发装饰器注册）
+        module_map = self._scan_modules(tools_dir)
 
-        # Scan implementations subdirectory
-        impl_dir = tools_dir / "implementations"
-        if impl_dir.exists():
-            print(f"📂 Scanning: {impl_dir}")
-            for info in pkgutil.iter_modules([str(impl_dir)]):
-                if info.name in skip:
-                    print(f"⏭️  Skip: {info.name}")
-                    continue
-                module = importlib.import_module(f"{package}.implementations.{info.name}")
-                for attr in dir(module):
-                    obj = getattr(module, attr)
-                    if isinstance(obj, BaseTool):
-                        self._tools[obj.name] = obj
-                        print(f"✅ Loaded: {obj.name} (from implementations/{info.name})")
+        # 2. 从注册表加载工具
+        registered = get_registered_tools()
+        print(f"📦 Found {len(registered)} registered tools")
+
+        for tool_name, tool_cls in registered.items():
+            try:
+                # 实例化工具
+                tool_instance = tool_cls() if callable(tool_cls) else tool_cls
+
+                self._tools[tool_name] = tool_instance
+                category = getattr(tool_cls, "_category", "general")
+                scope = tool_instance.tags[0] if tool_instance.tags else "both"
+                print(f"✅ Loaded: {tool_name} [category={category}, scope={scope}]")
+
+            except Exception as e:
+                print(f"❌ Failed to load {tool_name}: {e}")
 
         print(f"📊 Total tools loaded: {len(self._tools)}")
         print("=" * 80)
         return self
+
+    def _scan_modules(self, tools_dir: Path):
+        """递归扫描所有模块（类似 Spring 的包扫描）"""
+        impl_dir = tools_dir / "implementations"
+        if not impl_dir.exists():
+            return {}
+
+        package_base = "backend.app.tools.implementations"
+        module_map = {}  # tool_name -> module_key
+
+        # 递归扫描所有子目录
+        for category_dir in impl_dir.iterdir():
+            if not category_dir.is_dir() or category_dir.name.startswith("_"):
+                continue
+
+            print(f"📂 Scanning category: {category_dir.name}")
+
+            # 扫描该分类下的所有模块
+            for module_file in category_dir.glob("*.py"):
+                if module_file.name.startswith("_"):
+                    continue
+
+                module_name = module_file.stem
+                full_module = f"{package_base}.{category_dir.name}.{module_name}"
+                module_key = f"{category_dir.name}.{module_name}"
+
+                try:
+                    # 记录导入前的工具数量
+                    before = set(get_registered_tools().keys())
+                    importlib.import_module(full_module)
+                    # 记录导入后新增的工具
+                    after = set(get_registered_tools().keys())
+                    new_tools = after - before
+
+                    # 建立工具到模块的映射
+                    for tool_name in new_tools:
+                        module_map[tool_name] = module_key
+
+                    print(f"  ✓ Scanned: {module_key} ({len(new_tools)} tools)")
+                except Exception as e:
+                    print(f"  ✗ Failed: {module_key} - {e}")
+
+        return module_map
 
     def build_task_tool(self, main_context=None) -> "ToolsManager":
         """
@@ -96,8 +133,8 @@ class ToolsManager:
             )
 
         set_spawn_callback(spawn_callback)
-        self._task_tool = Task
-        self._tools[Task.name] = Task
+        # Task 工具已被拆分为独立的 task_create/task_get/task_list/task_update
+        # 不再需要单独注册
 
         # 注入 background_agent 的工具获取回调
         from backend.app.tools.implementations.execution.background_tool import set_get_tools_callback

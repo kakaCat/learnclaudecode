@@ -7,8 +7,48 @@
 - team_tool: 团队协作工具
 """
 
-from . import compact_tool
-from . import worktree_tool
-from . import team_tool
+from .compact_tool import compact
+from .worktree_tool import (
+    worktree_create,
+    worktree_list,
+    worktree_remove,
+    worktree_status,
+    worktree_run,
+    worktree_keep,
+    worktree_events,
+    task_bind_worktree,
+)
+from .team_tool import (
+    spawn_teammate,
+    list_teammates,
+    send_message,
+    read_inbox,
+    broadcast,
+    claim_task,
+    idle,
+    shutdown_request,
+    check_shutdown_status,
+    plan_approval,
+)
 
-__all__ = ["compact_tool", "worktree_tool", "team_tool"]
+__all__ = [
+    "compact",
+    "worktree_create",
+    "worktree_list",
+    "worktree_remove",
+    "worktree_status",
+    "worktree_run",
+    "worktree_keep",
+    "worktree_events",
+    "task_bind_worktree",
+    "spawn_teammate",
+    "list_teammates",
+    "send_message",
+    "read_inbox",
+    "broadcast",
+    "claim_task",
+    "idle",
+    "shutdown_request",
+    "check_shutdown_status",
+    "plan_approval",
+]
